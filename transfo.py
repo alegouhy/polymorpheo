@@ -78,7 +78,7 @@ class init_transfo():
         
         ndims = ref_pts.shape[1]
     
-        if self.init == 'identity':
+        if self.init in (None, 'identity'):
             return jnp.eye(ndims+1), mov_pts
         
         else:

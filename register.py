@@ -30,7 +30,9 @@ class reg_linear():
         T0 has priority over init.
         """
         
-        ref_pts, mov_simps, ref_normals = ref_contour
+        ref_contour = [jnp.array(cont) if cont is not None else None for cont in ref_contour]
+        mov_contour = [jnp.array(cont) if cont is not None else None for cont in mov_contour]
+        ref_pts, ref_simps, ref_normals = ref_contour
         mov_pts, mov_simps, mov_normals = mov_contour
         
         if T0 is None:
@@ -84,7 +86,7 @@ class reg_polynom():
         disp0 has priority over init.
         """
         
-        ref_pts, mov_simps, ref_normals = ref_contour
+        ref_pts, ref_simps, ref_normals = ref_contour
         mov_pts, mov_simps, mov_normals = mov_contour
         
         if disp0 is None:

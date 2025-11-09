@@ -1,6 +1,7 @@
 import os
 os.chdir('/Users/alegouhy/tests/contours2mesh')
 os.environ['JAX_PLATFORMS'] = 'cpu'
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import matplotlib.pyplot as plt
 import time
 
@@ -16,10 +17,10 @@ ref_file = 'imgs/ref.png'
 mov_img = utils.load_img(mov_file)
 ref_img = utils.load_img(ref_file)
 
-decim = 2
+npts = 100
 get_normals = True
-mov_contour = utils.seg_to_contour(mov_img, decim=decim, get_normals=get_normals)
-ref_contour = utils.seg_to_contour(ref_img, decim=decim, get_normals=get_normals)
+mov_contour = utils.seg_to_contour(mov_img, npts=npts, get_normals=get_normals)
+ref_contour = utils.seg_to_contour(ref_img, npts=npts, get_normals=get_normals)
 mov_pts, mov_simps, mov_normals = mov_contour
 ref_pts, ref_simps, ref_normals = ref_contour
 [mov_pts, ref_pts], mean, std = utils.normalise_pts([mov_pts, ref_pts])
