@@ -110,11 +110,12 @@ utils.plot_mesh(pts, simps)
 
 import skimage
 
+z_coords = [0, 5, 10, 15, 20, 25]
 opts_1 = skimage.measure.find_contours(img1 > 0)
 opts_1 = [opts[:,[1,0]] for opts in opts_1]
 opts_2 = skimage.measure.find_contours(img2 > 0)
 opts_2 = [opts[:,[1,0]] for opts in opts_2]
-opts = [opts_1, opts_1, opts_2, opts_2]
+opts_list = [opts_1, opts_1, opts_2, opts_2, opts_1, opts_1]
 for opt in opts_1:
     plt.plot(opt[:,0], opt[:,1], '.-')
 for opt in opts_2:
@@ -122,122 +123,37 @@ for opt in opts_2:
 plt.axis('off'); plt.show()
 
 
+pts, simps = utils.bridge_contours_2(opts_list, z_coords, greedy=True)
 
-for i in range(len(opts)-1):
+utils.plot_mesh(pts, simps, 'pyvista')
         
-    opts_1 = opts[i]
-    opts_2 = opts[i+1]
-    
-    n1 = len(opts_1)
-    n2 = len(opts_2)
-    if n1 == 1 and n2 == 2:
-        opts_1 = utils.splitfit_opts(opts_1, opts_2)
-        n1 == 1
-    elif n1 == 2 and n2 == 1:
-        opts_2 = utils.splitfit_opts(opts_2, opts_1)
-        n2 += 1
-    elif n1 != n2:
-        raise ValueError(f"Can't handle {n1} to {n2} branching yet")
-    
-    for k in range(n1):
+
+
         
-        opts_1k = opts_1[k]
-        opts_2k = opts_2[k]
-        
-        opts_1k = utils.cw(opts_1k)
-        opts_2k = utils.cw(opts_2k)
-        
-        opts_2k = utils.phase_align_contours(opts_1k, opts_2k)
-        
-        
-new_opts_1 = utils.splitfit_opts(opts_1, opts_2)
+# new_opts_1 = utils.splitfit_opts(opts_1, opts_2)
 
-for opt in new_opts_1:
-    plt.plot(opt[:,0], opt[:,1], '.-')
-    # plt.plot([opt[0,0],opt[-1,0]], [opt[0,1],opt[-1,1]], '.-');     
-    plt.show()
-    
-    
-a = [new_opts_1[1], np.roll(opts_2[1][:-1,:], 36, axis=0)]
-for opt in a:
-    plt.plot(opt[:,0], opt[:,1], '.-')   
-plt.show()
-    
-a[1] = utils.phase_align_contours(a[0], a[1], start=True)
-
-for opt in a:
-    plt.plot(opt[:,0], opt[:,1], '.-')  
-plt.show()
-
-
-
-
-# for k in range(len(new_opts_1)):
-    
-#     c1 = new_opts_1[k]
-#     c2 = opts_2[k]
-    
-#     if shapely.geometry.LinearRing(c1).is_ccw == True:
-#         c1 = np.flipud(c1)
-#     if shapely.geometry.LinearRing(c1).is_ccw == True:
-#         c2 = np.flipud(c2)
-    
-#     plt.plot(c1[:,0], c1[:,1], '.-')
-#     plt.plot(c2[:,0], c2[:,1], '.-')
+# for opt in new_opts_1:
+#     plt.plot(opt[:,0], opt[:,1], '.-')
+#     # plt.plot([opt[0,0],opt[-1,0]], [opt[0,1],opt[-1,1]], '.-');     
 #     plt.show()
-        
-        
     
-# dists = [np.min(utils.pts_sqdist(opts_1[0], opt), axis=1) for opt in opts_2]
-# assign = np.argmin(np.stack(dists, axis=-1), axis=1)
+    
+# a = [new_opts_1[1], np.roll(opts_2[1][:-1,:], 36, axis=0)]
+# for opt in a:
+#     plt.plot(opt[:,0], opt[:,1], '.-')   
+# plt.show()
+    
+# a[1] = utils.phase_align_contours(a[0], a[1], start=True)
 
-# dist = np.sqrt(utils.pts_sqdist(pts2,pts1))
-# plt.imshow(1 / dist, vmin=0, vmax=1)
+# for opt in a:
+#     plt.plot(opt[:,0], opt[:,1], '.-')  
 # plt.show()
 
 
+for opt in opts_2:
+    plt.plot(opt[:,0], opt[:,1], '.-')  
+plt.show()
 
-
-# def frechet_dist(contour1, contour2):
-
-#     c1 = contour1.reshape(-1, 2)
-#     c2 = contour2.reshape(-1, 2)
-    
-#     n, m = c1.shape[0], c2.shape[0]
-    
-#     def dist(i, j):
-#         return np.linalg.norm(c1[i] - c2[j])
-    
-#     # Only keep previous and current row
-#     prev_row = np.full(m, np.inf)
-#     curr_row = np.full(m, np.inf)
-    
-#     # Initialize first row
-#     prev_row[0] = dist(0, 0)
-#     for j in range(1, m):
-#         prev_row[j] = max(prev_row[j-1], dist(0, j))
-    
-#     # Process remaining rows
-#     for i in range(1, n):
-#         curr_row[0] = max(prev_row[0], dist(i, 0))
-        
-#         for j in range(1, m):
-#             curr_row[j] = max(
-#                 min(prev_row[j], curr_row[j-1], prev_row[j-1]),
-#                 dist(i, j)
-#             )
-        
-#         prev_row, curr_row = curr_row, prev_row
-    
-#     return prev_row[-1]
-
-# a = frechet_dist(opts_1[0],opts_2[0])
-
-# line1 = shapely.LineString(opts_1[0])
-# line2 = shapely.LineString(opts_2[0])
-# b = shapely.frechet_distance(line1, line2)
-
-# print(a, b)
 
 #%% method 3: vtk
 

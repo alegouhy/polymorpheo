@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import skimage
 import jax.numpy as jnp
+import jax
 from scipy.linalg import logm    # not in jax.scipy yet...
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -11,6 +12,7 @@ import pyvista as pv
 import vtk
 from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from shapely.geometry import LinearRing
+
 
 def develop(x, dec='|_'):
     
@@ -78,6 +80,14 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False):
     return pts, simps, normals
    
 
+def close_contours(opts):
+    
+    if np.all(opts[0,:] != opts[-1,:]):
+        np.vstack((opts, opts[0,:]))
+        
+    return opts
+
+
 def split_opts(opts, i, j):
     # with i < j
     
@@ -92,7 +102,6 @@ def splitfit_opts(opts_1, opts_2):
     i_hat = 0
     j_hat = 0
     dist_hat = np.inf
-    swap = False
     
     n = opts_1[0].shape[0]
     
@@ -114,7 +123,7 @@ def splitfit_opts(opts_1, opts_2):
                 i_hat = i
                 j_hat = j
                 dist_hat = dist
-                if dist2 < dist1: swap = True
+                swap = True if dist2 < dist1 else False
     
     opts_1_split = split_opts(opts_1[0], i_hat, j_hat)
     opts_1_split = cw(opts_1_split)
@@ -135,6 +144,7 @@ def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False):
     return pts, simps, normals
 
 
+@jax.jit
 def pts_sqdist(pts1, pts2):
     
     diff = pts1[:,None,:] - pts2[None,:,:]
@@ -156,10 +166,10 @@ def cw(opts):
     
     opts_cw = []
     for opt in opts:
-        if LinearRing(opt).is_ccw == True:
-            opt_cw = np.flipud(opt)
-        else:
-            opt_cw = opt
+        opt_cw = opt
+        if opt.shape[0] > 3:
+            if LinearRing(opt).is_ccw == True:
+                opt_cw = np.flipud(opt)
         opts_cw.append(opt_cw)
       
     return opts_cw
@@ -320,6 +330,25 @@ def plot_contour(contour,
     if ylim is not None: plt.ylim(ylim)
     
 
+
+def plot_opts(opts,
+              col=[1,0,0], linewidth=1, markersize=6,
+              xlim=[-2,2], ylim=[-2,2], scal_normals=0.1):
+    
+    col_pts = np.array(col)
+    
+    plt.plot(opts[:,0], opts[:,1], color=col_pts) 
+    plt.scatter(opts[1:-1,0], opts[1:-1,1], markersize, color=col_pts) 
+    plt.scatter(opts[0,0], opts[0,1], 4*markersize, color=col_pts, marker='^')
+    plt.scatter(opts[-1,0], opts[-1,1], 3*markersize, color=col_pts, marker='s')
+    
+    plt.axis('off')
+    plt.gca().set_aspect('equal')
+    if xlim is not None: plt.xlim(xlim)
+    if ylim is not None: plt.ylim(ylim)
+    
+    
+    
 def plot_disp(disp, pts,
               col=[1,0,0], linewidth=1, markersize=3,
               xlim=[-2,2], ylim=[-2,2], scal_normals=0.1):
@@ -352,28 +381,6 @@ def resample_contour(pts, n):
     return np.stack(pts_res, axis=-1)
 
 
-def phase_align_contours(opts1, opts2, simps2=None, start=True, end=True):
-
-    npts = opts1.shape[0]
-    
-    opts1_end = []
-    if start: opts1_end.append(opts1[0,:])
-    if end: opts1_end.append(opts1[-1,:])
-    opts1_end = np.vstack(opts1_end)
-    
-    dist = pts_sqdist(opts1_end, opts2)
-    dist = np.sum(dist, axis=0)
-    
-    k = np.argmin(dist)
-    opts2 = np.roll(opts2, shift=-k, axis=0)
-    
-    if simps2 is None:
-        return opts2
-    else: 
-        simps2 = (simps2 + k) % npts
-        return opts2, simps2
-    
-    
     
 # def phase_align_contours(opts1, opts2, simps2=None):
 #     """
@@ -444,6 +451,327 @@ def bridge_contours(pts_list, z_coords, npts=None):
     return pts, simps
 
 
+def bridge_contours_2(opts_list, z_coords, greedy=False, sealed=True):
+    
+    pts = []
+    simps = []
+    offset = 0
+    if greedy: 
+        path_fun = triangle_path_greedy
+    else:
+        path_fun = triangle_path_dp
+    
+    if sealed:
+        lid_start = [np.mean(opts, axis=0)[None,...] for opts in opts_list[0]]
+        lid_end = [np.mean(opts, axis=0)[None,...] for opts in opts_list[-1]]
+        opts_list = [lid_start] + opts_list + [lid_end]
+        z_coords = np.hstack((z_coords[0], z_coords, z_coords[-1]))
+
+    for i in range(len(opts_list)-1):
+        print(i)
+
+        opts_1 = cw(opts_list[i])
+        opts_2 = cw(opts_list[i+1])
+        
+        n1 = len(opts_1)
+        n2 = len(opts_2)
+        if n1 == 1 and n2 == 2:
+            opts_1 = splitfit_opts(opts_1, opts_2)
+            n1 += 1
+        elif n1 == 2 and n2 == 1:
+            opts_2 = splitfit_opts(opts_2, opts_1)
+            n2 += 1
+        elif n1 != n2:
+            raise ValueError(f"Can't handle {n1} to {n2} branching yet")
+        
+        for k in range(n1):
+            
+            opts_1k = close_contours(opts_1[k])
+            opts_2k = close_contours(opts_2[k])
+            nn1 = opts_1k.shape[0]
+            nn2 = opts_2k.shape[0]
+            
+            opts_2k = phase_align_contours(opts_1k, opts_2k)
+            
+            plt.subplot(2,n1,k+1)
+            plot_opts(opts_1k, col=[1,0,0])
+            plot_opts(opts_2k, col=[0,0,1])
+            plt.title(str(k))
+            
+            opts_1k = np.hstack([opts_1k, np.full((opts_1k.shape[0],1), z_coords[i])])
+            opts_2k = np.hstack([opts_2k, np.full((opts_2k.shape[0],1), z_coords[i+1])])
+            
+            pts_k = np.vstack([opts_1k, opts_2k])
+             
+            path, path_len = path_fun(opts_1k, opts_2k)
+            simps_k = triangulate_path(path, path_len, nn1, nn2)
+            
+            plt.subplot(2,n1,n1+k+1)
+            plot_path(path, nn1, nn2)
+            
+            simps_k = simps_k + offset
+            
+            pts.append(pts_k)
+            simps.append(simps_k)
+            
+            offset += pts_k.shape[0]
+        
+        plt.suptitle(str(i))
+        plt.show()
+                 
+    pts = np.vstack(pts)
+    simps = np.vstack(simps)
+    
+    return pts, simps
+    
+
+def phase_align_contours(opts1, opts2, simps2=None, start=True, end=True):
+
+    npts = opts1.shape[0]
+    
+    opts1_end = []
+    if start: opts1_end.append(opts1[0,:])
+    if end: opts1_end.append(opts1[-1,:])
+    opts1_end = np.vstack(opts1_end)
+    
+    dist = pts_sqdist(opts1_end, opts2)
+    dist = np.sum(dist, axis=0)
+    
+    k = np.argmin(dist)
+    opts2 = np.roll(opts2, shift=-k, axis=0)
+    
+    if simps2 is None:
+        return opts2
+    else: 
+        simps2 = (simps2 + k) % npts
+        return opts2, simps2
+
+
+# def triangulate_path(path, n1, n2):
+
+#     simps = []
+    
+#     for k in range(len(path) - 1):
+#         i_curr, j_curr = path[k]
+#         i_next, j_next = path[k + 1]
+        
+#         di = i_next - i_curr
+#         dj = j_next - j_curr
+        
+#         if di == 1 and dj == 0:
+#             simps.append([i_curr, i_next, n1 + j_curr])
+            
+#         elif di == 0 and dj == 1:
+#             simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            
+#         elif di == 1 and dj == 1:
+#             simps.append([i_curr, i_next, n1 + j_next])
+#             simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            
+#     simps.append([n1 - 1, 0, n1 + n2 - 1])
+#     simps.append([0, n1, n1 + n2 - 1])
+
+#     return jnp.array(simps)
+
+
+
+
+def triangulate_path(path, path_length, n1, n2):
+    simps = []
+    
+    # Only iterate over valid path entries
+    for k in range(path_length - 1):  # path_length is now a Python int after JIT
+        i_curr, j_curr = int(path[k, 0]), int(path[k, 1])
+        i_next, j_next = int(path[k + 1, 0]), int(path[k + 1, 1])
+        
+        di = i_next - i_curr
+        dj = j_next - j_curr
+        
+        if di == 1 and dj == 0:
+            simps.append([i_curr, i_next, n1 + j_curr])
+            
+        elif di == 0 and dj == 1:
+            simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            
+        elif di == 1 and dj == 1:
+            simps.append([i_curr, i_next, n1 + j_next])
+            simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            
+    simps.append([n1 - 1, 0, n1 + n2 - 1])
+    simps.append([0, n1, n1 + n2 - 1])
+
+    return jnp.array(simps)
+
+
+
+def triangle_path_greedy(opts1, opts2):
+    
+    n1, n2 = opts1.shape[0], opts2.shape[0]
+    
+    path = [(0, 0)]
+    i, j = 0, 0
+    
+    while i < n1 - 1 or j < n2 - 1:
+        
+        if i >= n1 - 1:
+            j += 1
+            
+        elif j >= n2 - 1:
+            i += 1
+            
+        else:
+            dist1 = jnp.sum((opts1[i+1] - opts2[j]) ** 2)
+            dist2 = jnp.sum((opts1[i] - opts2[j+1]) ** 2)
+            
+            if dist1 < dist2:
+                i += 1
+            else:
+                j += 1
+        
+        path.append((i, j))
+    
+    return path
+
+
+def plot_path(path, n1, n2):
+    
+    mat = np.zeros((n1, n2))
+    
+    for p in path:
+        mat[p[0], p[1]] = 1
+    
+    plt.imshow(mat)
+    plt.axis('off')
+  
+    
+@jax.jit
+def triangle_path_dp(opts1, opts2):
+    
+    opts1 = jnp.array(opts1)
+    opts2 = jnp.array(opts2)
+    n1, n2 = opts1.shape[0], opts2.shape[0]
+    
+    dists = jnp.linalg.norm(opts1[:, None, :] - opts2[None, :, :], axis=2)
+    
+    dp = jnp.full((n1, n2), jnp.inf)
+    dp = dp.at[0, 0].set(0)
+    parent = jnp.zeros((n1, n2), dtype=jnp.int32)
+    
+    def body_fn(ij, carry):
+        dp, parent = carry
+        i = ij // n2
+        j = ij % n2
+        
+        skip = (i == 0) & (j == 0)
+        
+        costs = jnp.array([jnp.where(j > 0, dp[i, j-1] + dists[i, j], jnp.inf),
+                           jnp.where(i > 0, dp[i-1, j] + dists[i, j], jnp.inf),
+                           jnp.where((i > 0) & (j > 0), dp[i-1, j-1] + dists[i, j] + dists[i-1, j-1], jnp.inf)])
+        
+        ind_best = jnp.argmin(costs)
+        cost_best = costs[ind_best]
+        
+        dp = jnp.where(skip, dp, dp.at[i, j].set(cost_best))
+        parent = jnp.where(skip, parent, parent.at[i, j].set(ind_best))
+        
+        return dp, parent
+    
+    dp, parent = jax.lax.fori_loop(0, n1 * n2, body_fn, (dp, parent))
+    
+    # Backtrack
+    max_path_len = n1 + n2
+    
+    def backtrack_cond(state):
+        i, j, step, path = state
+        at_start = (i == 0) & (j == 0)
+        return ~at_start & (step < max_path_len - 1)
+    
+    def backtrack_body(state):
+        i, j, step, path = state
+        path = path.at[step].set(jnp.array([i, j]))
+        
+        direction = parent[i, j]
+        i_new = jnp.where(direction == 0, i, i - 1)
+        j_new = jnp.where(direction == 1, j, j - 1)
+        
+        return i_new, j_new, step + 1, path
+    
+    path = jnp.zeros((max_path_len, 2), dtype=jnp.int32)
+    init_state = (n1 - 1, n2 - 1, 0, path)
+    i_final, j_final, final_step, path = jax.lax.while_loop(backtrack_cond, backtrack_body, init_state)
+
+    path = path.at[final_step].set(jnp.array([0, 0]))
+    path_length = final_step + 1
+    
+    path = jnp.flip(path, axis=0)
+    
+    # Shift so valid data starts at index 0
+    shift_amount = max_path_len - path_length
+    path = jnp.roll(path, -shift_amount, axis=0)
+    
+    return path, path_length
+
+# def triangle_path_dp(opts1, opts2):
+    
+#     opts1 = jnp.array(opts1)
+#     opts2 = jnp.array(opts2)
+#     n1, n2 = opts1.shape[0], opts2.shape[0]
+    
+#     dp = jnp.full((n1, n2), np.inf)
+#     dp = dp.at[0, 0].set(0)
+#     parent = jnp.zeros((n1, n2), dtype=int)
+    
+#     for i in range(n1):
+#         for j in range(n2):
+#             if i == 0 and j == 0: continue
+            
+#             candidates = jnp.full(3, np.inf)
+            
+#             # Option 0: step along opts2 from (i, j-1)
+#             if j > 0:
+#                 edge_cost = jnp.linalg.norm(opts1[i] - opts2[j])
+#                 candidates = candidates.at[0].set(dp[i, j-1] + edge_cost)
+            
+#             # Option 1: step along opts1 from (i-1, j)
+#             if i > 0:
+#                 edge_cost = jnp.linalg.norm(opts1[i] - opts2[j])
+#                 candidates = candidates.at[1].set(dp[i-1, j] + edge_cost)
+            
+#             # Option 2: diagonal from (i-1, j-1)
+#             if i > 0 and j > 0:
+#                 edge_cost = (jnp.linalg.norm(opts1[i] - opts2[j]) + 
+#                              jnp.linalg.norm(opts1[i-1] - opts2[j-1]))
+#                 candidates = candidates.at[2].set(dp[i-1, j-1] + edge_cost)
+            
+#             ind = jnp.argmin(candidates)
+#             dp = dp.at[i, j].set(candidates[ind])
+#             parent = parent.at[i, j].set(ind)  # Store 0, 1, or 2
+    
+#     # Backtrack to get path
+#     path = []
+#     i, j = n1 - 1, n2 - 1
+    
+#     while i >= 0 and j >= 0:
+#         path.append((i, j))
+        
+#         if i == 0 and j == 0:
+#             break
+        
+#         direction = parent[i, j]
+#         if direction == 2:
+#             i -= 1
+#             j -= 1
+#         elif direction == 0:
+#             j -= 1
+#         elif direction == 1:
+#             i -= 1
+#         else:
+#             break
+    
+#     path.reverse()
+#     return path
+
+
 def rasterize(contours, imshape=None):
     
     vol = np.zeros((*imshape, len(contours)), dtype=np.uint8)
@@ -480,6 +808,50 @@ def contours2mesh(contours, spacing=[1,1], paired=False):
     pts[:,:2] = ((pts[:,:2] - 0.5) / spacing) + mini
     
     return pts, simps, normals
+
+
+
+def triangulate_contours_greedy(c1, c2):
+
+    n1, n2 = c1.shape[0], c2.shape[0]
+    faces = []
+    
+    i, j = 0, 0
+    
+    dp = np.zeros((n1, n2), dtype=int)   ######
+    dp[0, 0] = 1
+    
+    while i < n1 - 1 or j < n2 - 1:
+        if i >= n1 - 1:
+            # Only can advance along c2
+            faces.append([i, n1 + j, n1 + j + 1])
+            j += 1
+        elif j >= n2 - 1:
+            # Only can advance along c1
+            faces.append([i, i + 1, n1 + j])
+            i += 1
+        else:
+            # Choose direction based on edge lengths
+            # Option 1: advance along c1
+            dist1 = np.linalg.norm(c1[i+1] - c2[j])
+            # Option 2: advance along c2
+            dist2 = np.linalg.norm(c1[i] - c2[j+1])
+            
+            if dist1 < dist2:
+                # Advance along c1: triangle [c1[i], c1[i+1], c2[j]]
+                faces.append([i, i + 1, n1 + j])
+                i += 1
+            else:
+                # Advance along c2: triangle [c1[i], c2[j], c2[j+1]]
+                faces.append([i, n1 + j, n1 + j + 1])
+                j += 1
+            
+        dp[i,j] = 1  ######
+    plt.subplot(1,2,1)
+    plt.imshow(dp)
+            
+    return np.array(faces)
+
 
 
 from collections import defaultdict
@@ -532,7 +904,7 @@ def contours2opts(pts, simps, closed_only=True):
     return contours
 
 
-def smooth_vtkpoly(poly, niter=50):
+def smooth_vtkpoly(poly, niter=300):
     
     smoother = vtk.vtkWindowedSincPolyDataFilter()
     smoother.SetInputData(poly)

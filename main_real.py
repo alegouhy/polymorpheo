@@ -81,17 +81,14 @@ for i in range(len(contours)-1):
     plt.suptitle('rigid - ' + str(i))
     plt.show()
 
-# opts_list = [contour[0] for contour in contours_rig]
-# pts_rig, simps_rig = utils.bridge_contours(opts_list, z_coords)
-
 opts_rig = [utils.contours2opts(np.array(contour[0]), np.array(contour[1])) for contour in contours_rig]
-pts_rig, simps_rig, _ = utils.contours2mesh(opts_rig, spacing=[100]*2)
+pts_rig, simps_rig = utils.bridge_contours_2(opts_rig, z_coords, greedy=False)
 
 pts_rig[:,:2] = (pts_rig[:,:2] * std + mean) * voxdim[:2]
 pts_rig[:,2] = pts_rig[:,2] * voxdim[2]
 
 poly_rig = utils.vtkpoly(pts_rig, simps_rig)
-utils.write_vtkpoly(poly_rig, 'output/mesh_rig_2.vtp')
+utils.write_vtkpoly(poly_rig, 'output/mesh_rig_3.vtp')
 
 
 #%% affine dwich ICP
@@ -129,16 +126,13 @@ for i in range(2, len(contours)-1):
     plt.suptitle('affine - ' + str(i))
     plt.show()
 
-# opts_list = [contour[0] for contour in contours_aff]
-# pts_aff, simps_aff = utils.bridge_contours(opts_list, z_coords)
-
 opts_aff = [utils.contours2opts(np.array(contour[0]), np.array(contour[1])) for contour in contours_aff]
-pts_aff, simps_aff, _ = utils.contours2mesh(opts_aff, spacing=[100]*2)
+pts_aff, simps_aff = utils.bridge_contours_2(opts_aff, z_coords, greedy=False)
 
 pts_aff[:,:2] = (pts_aff[:,:2] * std + mean) * voxdim[:2]
 pts_aff[:,2] = pts_aff[:,2] * voxdim[2]
 poly_aff = utils.vtkpoly(pts_aff, simps_aff)
-utils.write_vtkpoly(poly_aff, 'output/mesh_dwich-aff_2.vtp')
+utils.write_vtkpoly(poly_aff, 'output/mesh_dwich-aff_3.vtp')
 
 
 #%% quad dwich ICP
@@ -165,28 +159,28 @@ for i in range(2, len(contours)-1):
     moved_contour = moved_pts, mov_contour[1], mov_contour[2]
     contours_quad[i] = moved_contour
 
-    # plt.subplot(1,2,1)
-    # utils.plot_contour(prev_contour, col=[1,0,0])
-    # utils.plot_contour(mov_contour, col=[0,0,1])
-    # plt.subplot(1,2,2)
-    # utils.plot_contour(prev_contour, col=[1,0,0])
-    # utils.plot_contour(moved_contour, col=[0,0,1])
-    # plt.suptitle('quadratic - ' + str(i))
-    # plt.show()
-
-# opts_list = [contour[0] for contour in contours_quad]
-# pts_quad, simps_quad = utils.bridge_contours(opts_list, z_coords)
+    plt.subplot(1,2,1)
+    utils.plot_contour(prev_contour, col=[1,0,0])
+    utils.plot_contour(mov_contour, col=[0,0,1])
+    plt.subplot(1,2,2)
+    utils.plot_contour(prev_contour, col=[1,0,0])
+    utils.plot_contour(moved_contour, col=[0,0,1])
+    plt.suptitle('quadratic - ' + str(i))
+    plt.show()
 
 opts_quad = [utils.contours2opts(np.array(contour[0]), np.array(contour[1])) for contour in contours_quad]
-pts_quad, simps_quad, _ = utils.contours2mesh(opts_quad, spacing=[100]*2)
+pts_quad, simps_quad = utils.bridge_contours_2(opts_quad, z_coords, greedy=False)
 
 pts_quad[:,:2] = (pts_quad[:,:2] * std + mean) * voxdim[:2]
 pts_quad[:,2] = pts_quad[:,2] * voxdim[2]
 poly_quad = utils.vtkpoly(pts_quad, simps_quad)
-utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_2.vtp')
+utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_3.vtp')
 
-poly_quad = utils.smooth_vtkpoly(poly_quad)
-utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_2_smooth.vtp')
+
+pts_quad_smo = utils.z_smooth(pts_quad, simps_quad)
+poly_quad_smo = utils.vtkpoly(pts_quad_smo, simps_quad)
+# poly_quad_smo = utils.smooth_vtkpoly(poly_quad)
+utils.write_vtkpoly(poly_quad_smo, 'output/mesh_dwich-quad_3_smooth.vtp')
 
 
 #%%
