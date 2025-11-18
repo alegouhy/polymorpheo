@@ -47,14 +47,19 @@ for i, opts in enumerate(opts_list):
 spacing = 1
 z_coords = np.arange(0,  spacing*len(opts_list), spacing)
 
-opts_list = [contour[0] for contour in contours]
-pts, simps = utils.bridge_contours(opts_list, z_coords)
-pts[:,:2] = (pts[:,:2] * std + mean) * voxdim[:2]
-pts[:,2] = pts[:,2] * voxdim[2]
-poly_raw = utils.vtkpoly(pts, simps)
-utils.write_vtkpoly(poly_raw, 'output/mesh_raw.vtp')
+opts_raw = [utils.contours2opts(np.array(contour[0]), np.array(contour[1])) for contour in contours]
+pts_raw, simps_raw = utils.bridge_contours_2(opts_raw, z_coords, greedy=False)
 
+pts_raw[:,:2] = (pts_raw[:,:2] * std + mean) * voxdim[:2]
+pts_raw[:,2] = pts_raw[:,2] * voxdim[2]
 
+poly_raw = utils.vtkpoly(pts_raw, simps_raw)
+utils.write_vtkpoly(poly_raw, 'output/mesh_raw_3.vtp')
+
+if pts_raw.shape[0] < np.max(simps_raw):
+    raise KeyboardInterrupt
+    
+    
 #%% rigid ICP
 
 contours_rig = contours.copy()
@@ -169,48 +174,64 @@ for i in range(2, len(contours)-1):
     plt.show()
 
 opts_quad = [utils.contours2opts(np.array(contour[0]), np.array(contour[1])) for contour in contours_quad]
-pts_quad, simps_quad = utils.bridge_contours_2(opts_quad, z_coords, greedy=False)
+
+pts = np.zeros((0,2))
+for opts in opts_quad:
+    for opt in opts:
+        pts = np.concatenate((pts, opt), axis=0)
+
+#%%
+
+pts_quad, simps_quad = utils.bridge_contours_2(opts_quad[67:69], z_coords[67:69], greedy=False, sealed=False)
+# pts_quad, simps_quad = utils.bridge_contours_2(opts_quad, z_coords)
+print(pts_quad.shape[0], np.max(simps_quad))
+# adj_quad = utils.simps_to_adj(simps_quad, pts_quad.shape[0])
+
+# contours_cat_quad = utils.concat_contours(contours_quad, z_coords)
+# adj_quad_xy = utils.simps_to_adj(contours_cat_quad[1], contours_cat_quad[0].shape[0])
+# adj_quad_z = adj_quad - adj_quad_xy
+
 
 pts_quad[:,:2] = (pts_quad[:,:2] * std + mean) * voxdim[:2]
 pts_quad[:,2] = pts_quad[:,2] * voxdim[2]
 poly_quad = utils.vtkpoly(pts_quad, simps_quad)
 utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_3.vtp')
+utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_3.obj')
 
-
-pts_quad_smo = utils.z_smooth(pts_quad, simps_quad)
-poly_quad_smo = utils.vtkpoly(pts_quad_smo, simps_quad)
-# poly_quad_smo = utils.smooth_vtkpoly(poly_quad)
-utils.write_vtkpoly(poly_quad_smo, 'output/mesh_dwich-quad_3_smooth.vtp')
+# pts_quad_smo = utils.z_smooth(pts_quad, simps_quad)
+# poly_quad_smo = utils.vtkpoly(pts_quad_smo, simps_quad)
+# # poly_quad_smo = utils.smooth_vtkpoly(poly_quad)
+# utils.write_vtkpoly(poly_quad_smo, 'output/mesh_dwich-quad_3_smooth.vtp')
 
 
 #%%
 
-contours_test = contours_quad.copy()
+# contours_test = contours_quad.copy()
 
-for i, contour in enumerate(contours_test):
+# for i, contour in enumerate(contours_test):
     
-    pts, simps, normals = contour
-    print(contour)
+#     pts, simps, normals = contour
+#     print(contour)
 
-    npts = pts.shape[0]
-    pts = np.concatenate((pts, np.full((npts, 1), z_coords[i])), axis=1)
-    pts[:,:2] = pts[:,:2] * std + mean
-    pts = pts * voxdim
-    contours_test[i] = pts, simps, None
+#     npts = pts.shape[0]
+#     pts = np.concatenate((pts, np.full((npts, 1), z_coords[i])), axis=1)
+#     pts[:,:2] = pts[:,:2] * std + mean
+#     pts = pts * voxdim
+#     contours_test[i] = pts, simps, None
 
-pts_test, simps_test, _ = utils.concat_contours(contours_test)
+# pts_test, simps_test, _ = utils.concat_contours(contours_test)
 
-utils.plot_mesh(pts_test, simps_test)
+# utils.plot_mesh(pts_test, simps_test)
 
-poly_test = utils.vtkpoly(pts_test, simps_test)
-utils.write_vtkpoly(poly_test, 'output/mesh_test.vtp')
-utils.render_vtkpoly([poly_test])
+# poly_test = utils.vtkpoly(pts_test, simps_test)
+# utils.write_vtkpoly(poly_test, 'output/mesh_test.vtp')
+# utils.render_vtkpoly([poly_test])
 
-#%%
+# #%%
 
-mesh_rto_file = "/Users/alegouhy/dev/polygons_to_mesh/data/mesh_smooth.ply"
-poly_rto = utils.read_vtkpoly(mesh_rto_file)
-utils.write_vtkpoly(poly_rto, 'output/mesh_rto.vtp')
+# mesh_rto_file = "/Users/alegouhy/dev/polygons_to_mesh/data/mesh_smooth.ply"
+# poly_rto = utils.read_vtkpoly(mesh_rto_file)
+# utils.write_vtkpoly(poly_rto, 'output/mesh_rto.obj')
 
 
 

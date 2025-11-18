@@ -11,8 +11,8 @@ pio.renderers.default = 'browser'
 import pyvista as pv
 import vtk
 from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
-from shapely.geometry import LinearRing
-
+from shapely.geometry import LinearRing, Polygon, Point
+from shapely import make_valid
 
 def develop(x, dec='|_'):
     
@@ -80,57 +80,235 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False):
     return pts, simps, normals
    
 
-def close_contours(opts):
+def close_contour(opt):
     
-    if np.all(opts[0,:] != opts[-1,:]):
-        np.vstack((opts, opts[0,:]))
+    if np.all(opt[0,:] != opt[-1,:]):
+        np.vstack((opt, opt[0,:]))
         
-    return opts
+    return opt
+
+def open_contour(opt):
+    
+    while np.all(opt[0,:] == opt[-1,:]) and opt.shape[0] > 1:
+        opt = opt[:-1,:]
+
+    return opt
 
 
 def split_opts(opts, i, j):
     # with i < j
     
-    opts1 = np.vstack((opts[:i+1, :], opts[j:-1, :]))
+    opts1 = np.vstack((opts[:i+1, :], opts[j:, :]))
     opts2 = np.vstack((opts[i:j+1, :]))
     
     return [opts1, opts2]
 
 
+def split_opts_2(opts, i, j):
+    # with i < j
+    
+    npts = opts.shape[0]
+    dist = np.sum(np.linalg.norm(np.diff(opts, axis=0), axis=1))
+    ro = npts / dist
+    
+    if i == j:
+        opts1 = opts.copy()
+        opts2 = opts[i,:][None,...]
+        
+    else:
+        dist_link = np.linalg.norm(opts[i,:]-opts[j,:])
+        npts_link = np.max((np.round(ro * dist_link).astype(int), 2))
+        link = np.linspace(opts[i,:], opts[j,:], npts_link)
+        
+        opts1 = np.vstack((opts[:i, :], link, opts[j+1:, :]))
+        opts2 = np.vstack((opts[i+1:j, :], np.flip(link, axis=0)))
+    
+    return [opts1, opts2]
+
+
+
+# def splitfit_opts(opts_1, opts_2):
+
+#     opts_1 = [open_contour(opt) for opt in opts_1]
+#     opts_2 = [open_contour(opt) for opt in opts_2]
+    
+#     pt_2_rep = [representative_point(opt) for opt in opts_2]
+                
+#     dist_6 = chamfer(opts_1[0], opts_2[0]) + \
+#              chamfer(pt_2_rep[1], opts_2[1]) 
+#     dist_7 = chamfer(opts_1[0], opts_2[1]) + \
+#              chamfer(pt_2_rep[0], opts_2[0]) 
+    
+#     ind_dist_hat = np.argmin([dist_6, dist_7])
+    
+#     if ind_dist_hat == 0:
+#         opts_1_split = [opts_1[0], pt_2_rep[1]]
+#     elif ind_dist_hat == 0:
+#         opts_1_split = [opts_1[0], pt_2_rep[0]]
+                        
+#     opts_1_split = [open_contour(opt) for opt in opts_1_split]
+    
+#     plt.figure()
+#     plt.subplot(2,2,1)
+#     plot_opts(opts_1_split[0], markersize=1)
+#     plt.subplot(2,2,2)
+#     plot_opts(opts_1_split[1], markersize=1)
+#     plt.subplot(2,2,3)
+#     plot_opts(opts_2[0], markersize=1)
+#     plt.subplot(2,2,4)
+#     plot_opts(opts_2[1], markersize=1)
+#     plt.show()
+    
+#     opts_1_split = cw(opts_1_split)
+    
+#     plt.figure()
+#     plt.subplot(2,2,1)
+#     plot_opts(opts_1_split[0])
+#     plt.subplot(2,2,2)
+#     plot_opts(opts_1_split[1])
+#     plt.subplot(2,2,3)
+#     plot_opts(opts_2[0])
+#     plt.subplot(2,2,4)
+#     plot_opts(opts_2[1])
+#     plt.show()
+
+#     return opts_1_split
+
+
+
 def splitfit_opts(opts_1, opts_2):
 
+    opts_1 = [open_contour(opt) for opt in opts_1]
+    opts_2 = [open_contour(opt) for opt in opts_2]
+    n = opts_1[0].shape[0]
+    
     i_hat = 0
     j_hat = 0
     dist_hat = np.inf
     
-    n = opts_1[0].shape[0]
+    for opt in opts_1:
+        plot_opts(opt, col=[1,0,0])
+        plt.show()
+    for opt in opts_2:
+        plot_opts(opt, col=[0,0,1])
+        plt.show()
     
-    for i in range(n):
-        for j in range(n):
-            if i > j: continue
+    for i in range(1, n):
+        for j in range(i, n):
             
-            opts_1_split = split_opts(opts_1[0], i, j)
+            opts_1_split = split_opts_2(opts_1[0], i, j)
+            opts_1_split = [open_contour(opt) for opt in opts_1_split]
             
-            dist1 = chamfer(opts_1_split[0], opts_2[0]) + \
+            dist0 = chamfer(opts_1_split[0], opts_2[0]) + \
                     chamfer(opts_1_split[1], opts_2[1])
-            
-            dist2 = chamfer(opts_1_split[0], opts_2[1]) + \
+
+            dist1 = chamfer(opts_1[0], opts_2[0]) + \
+                    chamfer(opts_1_split[1], opts_2[1])
+                    
+            dist2 = chamfer(opts_1[0], opts_2[0]) + \
+                    chamfer(opts_1_split[0], opts_2[1])
+                    
+            dist3 = chamfer(opts_1_split[0], opts_2[1]) + \
                     chamfer(opts_1_split[1], opts_2[0])
-            
-            dist = min(dist1, dist2)
+                    
+            dist4 = chamfer(opts_1[0], opts_2[1]) + \
+                    chamfer(opts_1_split[1], opts_2[0])
+                    
+            dist5 = chamfer(opts_1[0], opts_2[1]) + \
+                    chamfer(opts_1_split[0], opts_2[0])
+                    
+            dists = [dist0, dist1, dist2, dist3, dist4, dist5]
+            ind_dist = np.argmin(dists)
+            dist = dists[ind_dist]
             
             if dist < dist_hat:
-                i_hat = i
-                j_hat = j
-                dist_hat = dist
-                swap = True if dist2 < dist1 else False
+                i_hat, j_hat = i, j
+                dist_hat = dist.copy()
+                ind_dist_hat = ind_dist.copy()
     
-    opts_1_split = split_opts(opts_1[0], i_hat, j_hat)
-    opts_1_split = cw(opts_1_split)
-    if swap:
+    opts_1_split = split_opts_2(opts_1[0], i_hat, j_hat)
+    opts_1_split = [open_contour(opt) for opt in opts_1_split]
+    
+    if ind_dist_hat in (1,4): 
+        opts_1_split = [opts_1[0], opts_1_split[1]]
+    elif ind_dist_hat in (2,5): 
+        opts_1_split = [opts_1[0], opts_1_split[0]]
+    
+    if ind_dist_hat > 2:
         opts_1_split = [opts_1_split[1], opts_1_split[0]]
+        
+    # plt.figure()
+    # plt.subplot(2,2,1)
+    # plot_opts(opts_1_split[0], markersize=1)
+    # plt.subplot(2,2,2)
+    # plot_opts(opts_1_split[1], markersize=1)
+    # plt.subplot(2,2,3)
+    # plot_opts(opts_2[0], markersize=1)
+    # plt.subplot(2,2,4)
+    # plot_opts(opts_2[1], markersize=1)
+    # plt.show()
     
+    opts_1_split = cw(opts_1_split)
+    
+    # plt.figure()
+    # plt.subplot(2,2,1)
+    # plot_opts(opts_1_split[0])
+    # plt.subplot(2,2,2)
+    # plot_opts(opts_1_split[1])
+    # plt.subplot(2,2,3)
+    # plot_opts(opts_2[0])
+    # plt.subplot(2,2,4)
+    # plot_opts(opts_2[1])
+    # plt.show()
+
     return opts_1_split
+
+
+# def splitfit_opts(opts_1, opts_2):
+
+#     i_hat = 0
+#     j_hat = 0
+#     dist_hat = np.inf
+    
+#     n = opts_1[0].shape[0]
+    
+#     for i in range(n):
+#         for j in range(n):
+#             if i > j: continue
+            
+#             opts_1_split = split_opts_2(opts_1[0], i, j)
+            
+#             dist1 = chamfer(opts_1_split[0], opts_2[0]) + \
+#                     chamfer(opts_1_split[1], opts_2[1])
+            
+#             dist2 = chamfer(opts_1_split[0], opts_2[1]) + \
+#                     chamfer(opts_1_split[1], opts_2[0])
+            
+#             dist = min(dist1, dist2)
+            
+#             if dist < dist_hat:
+#                 i_hat = i
+#                 j_hat = j
+#                 dist_hat = dist
+#                 swap = True if dist2 < dist1 else False
+    
+#     opts_1_split = split_opts_2(opts_1[0], i_hat, j_hat)
+#     opts_1_split = cw(opts_1_split)
+#     if swap:
+#         opts_1_split = [opts_1_split[1], opts_1_split[0]]
+    
+#     cols = [[0,0,1],[1,0,0]]
+#     plt.figure()
+#     for i, opt in enumerate(opts_1_split):
+#         plot_opts(opt, col=cols[i])
+#     plt.show()
+    
+#     plt.figure()
+#     for i, opt in enumerate(opts_1_split):
+#         plot_opts(opt, col=cols[i])
+#         plt.show()
+    
+#     return opts_1_split
 
 
 def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False):
@@ -151,7 +329,7 @@ def pts_sqdist(pts1, pts2):
     
     return jnp.sum(diff ** 2, axis=-1)
 
-
+@jax.jit
 def chamfer(pts1, pts2):
     
     dist = pts_sqdist(pts1, pts2)
@@ -213,14 +391,19 @@ def simps_to_adj(simps, npts=None):
         npts = np.max(simps) + 1
         
     adj = np.zeros((npts, npts), dtype=int)
-    adj[simps[:,0], simps[:,1]] = 1
-    if ndims == 3:
-        adj[simps[:,1], simps[:,2]] = 1
-        adj[simps[:,2], simps[:,0]] = 1
-    adj = adj + adj.T
+    for simp in simps:
+    
+        adj[simp[0], simp[1]] = 1
+        adj[simp[1], simp[0]] = 1
+        if ndims == 3:
+            adj[simp[1], simp[2]] = 1
+            adj[simp[2], simp[1]] = 1
+            adj[simp[2], simp[0]] = 1
+            adj[simp[0], simp[2]] = 1
 
     return adj
 
+    
 
 def normals_contour(pts, simps, eps=1e-9):
 
@@ -240,32 +423,38 @@ def normals_contour(pts, simps, eps=1e-9):
     return pts_normals
 
 
-def concat_contours(contour_list):
+def concat_contours(contours, z_coords=None):
     
-    is_simps = contour_list[0][1] is not None
-    is_normals = contour_list[0][2] is not None
+    is_simps = contours[0][1] is not None
+    is_normals = contours[0][2] is not None
     
-    pts = []
-    simps = [] if is_simps else None
-    normals = [] if is_normals else None
+    pts_all = []
+    simps_all = [] if is_simps else None
+    normals_all = [] if is_normals else None
     offset = 0
-    for contour in contour_list:
+    for c, contour in enumerate(contours):
         
-        pts.append(contour[0])
+        pts, simps, normals = contour
+        
+        npts = pts.shape[0]
+        if z_coords is not None:
+            pts = np.concatenate((pts,np.full((npts,1), z_coords[c])), axis=1)
+        
+        pts_all.append(pts)
         if is_simps:
-            simps.append(contour[1] + offset)
+            simps_all.append(simps + offset)
         if is_normals:
-            normals.append(contour[1])
+            normals_all.append(normals)
             
-        offset += contour[0].shape[0]
+        offset += npts
         
-    pts = np.concatenate(pts, axis=0)
+    pts_all = np.concatenate(pts_all, axis=0)
     if is_simps:
-        simps = np.concatenate(simps, axis=0)
+        simps_all = np.concatenate(simps_all, axis=0)
     if is_normals:
-        normals = np.concatenate(normals, axis=0)
+        normals_all = np.concatenate(normals_all, axis=0)
         
-    return pts, simps, normals
+    return pts_all, simps_all, normals_all
 
 
 def neighs_contour(simps, npts=None):
@@ -381,31 +570,6 @@ def resample_contour(pts, n):
     return np.stack(pts_res, axis=-1)
 
 
-    
-# def phase_align_contours(opts1, opts2, simps2=None):
-#     """
-#     assumes 2D pts, ordered and npts1 = npts2
-#     """
-
-#     npts = opts1.shape[0]
-#     best_k = 0
-#     best_dist = np.inf
-    
-#     for k in range(npts):
-#         opts2_k = np.roll(opts2, shift=k, axis=0)
-#         dist = np.sum(np.linalg.norm(opts1 - opts2_k, axis=1))
-#         if dist < best_dist:
-#             best_dist = dist
-#             best_k = k
-    
-#     opts2 = np.roll(opts2, shift=best_k, axis=0)
-    
-#     if simps2 is None:
-#         return opts2
-#     else: 
-#         simps2 = (simps2 + best_k) % npts
-#         return opts2, simps2
-    
 
 def bridge_contours(pts_list, z_coords, npts=None):
     """
@@ -451,7 +615,60 @@ def bridge_contours(pts_list, z_coords, npts=None):
     return pts, simps
 
 
-def bridge_contours_2(opts_list, z_coords, greedy=False, sealed=True):
+def representative_point(opts):
+    
+    opts_c = close_contour(opts)
+    if opts_c.shape[0] < 4:
+        pt_rep = np.mean(opts, axis=0)
+    else:
+        pt_rep = Polygon(opts_c).representative_point()
+        pt_rep = np.array((pt_rep.x, pt_rep.y))
+        
+    return pt_rep[None,...] 
+    
+
+def conn_events(nodes_curr, nodes_next, links):
+
+    out_map = {a: [] for a in nodes_curr}
+    in_map  = {b: [] for b in nodes_next}
+
+    for a, b in links:
+        out_map[a].append(b)
+        in_map[b].append(a)
+
+    events = {"continue": [],
+              "split": [], "merge": [],
+              "birth": [], "death": []}
+    
+    merges_added = set()
+    
+    # death, continue or split
+    for a in nodes_curr:
+        outs = out_map[a]
+        if len(outs) == 0:
+            events["death"].append(a)
+        elif len(outs) == 1:
+            b = outs[0]
+            if len(in_map[b]) == 1:
+                events["continue"].append((a, b))
+            else:
+                # Only add merge once per target b
+                if b not in merges_added:
+                    events["merge"].append((in_map[b], b))
+                    merges_added.add(b)
+        else:
+            events["split"].append((a, outs))
+
+    # birth
+    for b in nodes_next:
+        if len(in_map[b]) == 0:
+            events["birth"].append(b)
+
+    return events
+
+
+
+def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=True):
     
     pts = []
     simps = []
@@ -461,68 +678,155 @@ def bridge_contours_2(opts_list, z_coords, greedy=False, sealed=True):
     else:
         path_fun = triangle_path_dp
     
+    nodes_list, links_list = build_graph_conn(opts_list, thr_conn)
+    plot_graph_conn(nodes_list, links_list)
+    plt.show()
+    
     if sealed:
-        lid_start = [np.mean(opts, axis=0)[None,...] for opts in opts_list[0]]
-        lid_end = [np.mean(opts, axis=0)[None,...] for opts in opts_list[-1]]
+        lid_start = [representative_point(opts) for opts in opts_list[0]]
+        lid_end = [representative_point(opts) for opts in opts_list[-1]]
         opts_list = [lid_start] + opts_list + [lid_end]
-        z_coords = np.hstack((z_coords[0], z_coords, z_coords[-1]))
-
+        z_coords = np.hstack((z_coords[0]-z_coords[1], z_coords, z_coords[-1]))
+        nodes_list = [nodes_list[0]] + nodes_list + [nodes_list[-1]]
+        links_list = [[[node, node] for node in nodes_list[0]]] + links_list + [[[node, node] for node in nodes_list[-1]]]
+    
     for i in range(len(opts_list)-1):
         print(i)
-
+        
         opts_1 = cw(opts_list[i])
-        opts_2 = cw(opts_list[i+1])
+        opts_2 = cw(opts_list[i+1])  
+        links = links_list[i]
+        nodes_1 = nodes_list[i]
+        nodes_2 = nodes_list[i+1]
         
-        n1 = len(opts_1)
-        n2 = len(opts_2)
-        if n1 == 1 and n2 == 2:
-            opts_1 = splitfit_opts(opts_1, opts_2)
-            n1 += 1
-        elif n1 == 2 and n2 == 1:
-            opts_2 = splitfit_opts(opts_2, opts_1)
-            n2 += 1
-        elif n1 != n2:
-            raise ValueError(f"Can't handle {n1} to {n2} branching yet")
+        events = conn_events(nodes_1, nodes_2, links)
         
-        for k in range(n1):
+        opts_1_proc = []
+        opts_2_proc = []
+        
+        for j_curr, js_next in events['split']:
+            parts_next = [opts_2[j] for j in js_next]
+            parts_curr = splitfit_opts([opts_1[j_curr]], parts_next)
+            opts_1_proc += parts_curr
+            opts_2_proc += parts_next
             
-            opts_1k = close_contours(opts_1[k])
-            opts_2k = close_contours(opts_2[k])
+        for js_curr, j_next in events['merge']:
+            parts_curr = [opts_1[j] for j in js_curr]
+            parts_next = splitfit_opts([opts_2[j_next]], parts_curr)
+            opts_1_proc += parts_curr
+            opts_2_proc += parts_next
+            
+        for j_curr in events['death']:
+            part_curr = opts_1[j_curr]
+            pt_rep_curr = representative_point(part_curr)
+            opts_1_proc += [part_curr]
+            opts_2_proc += [pt_rep_curr]
+        
+        for j_next in events['birth']:
+            part_next = opts_2[j_next]
+            pt_rep_next = representative_point(part_next)
+            opts_1_proc += [pt_rep_next]
+            opts_2_proc += [part_next]
+
+        for j_curr, j_next in events['continue']:
+            opts_1_proc += [opts_1[j_curr]]
+            opts_2_proc += [opts_2[j_next]]
+            
+        n = len(opts_1_proc)
+
+        for k in range(n):
+            
+            opts_1k = open_contour(opts_1_proc[k])
+            opts_2k = open_contour(opts_2_proc[k])
             nn1 = opts_1k.shape[0]
             nn2 = opts_2k.shape[0]
             
             opts_2k = phase_align_contours(opts_1k, opts_2k)
             
-            plt.subplot(2,n1,k+1)
+            # plt.subplot(2,n1,k+1)
+            plt.figure()
             plot_opts(opts_1k, col=[1,0,0])
             plot_opts(opts_2k, col=[0,0,1])
-            plt.title(str(k))
+            plt.title(str(i) + ', ' + str(k))
+            plt.show()
             
             opts_1k = np.hstack([opts_1k, np.full((opts_1k.shape[0],1), z_coords[i])])
             opts_2k = np.hstack([opts_2k, np.full((opts_2k.shape[0],1), z_coords[i+1])])
-            
             pts_k = np.vstack([opts_1k, opts_2k])
              
             path, path_len = path_fun(opts_1k, opts_2k)
-            simps_k = triangulate_path(path, path_len, nn1, nn2)
+            _, simps_k = triangulate_path(path, opts_1k, opts_2k)
             
-            plt.subplot(2,n1,n1+k+1)
+            plt.subplot(2, n, n+k+1)
             plot_path(path, nn1, nn2)
             
             simps_k = simps_k + offset
             
             pts.append(pts_k)
             simps.append(simps_k)
-            
             offset += pts_k.shape[0]
-        
+
         plt.suptitle(str(i))
         plt.show()
                  
     pts = np.vstack(pts)
     simps = np.vstack(simps)
-    
+
+    pts, simps = clean_mesh(pts, simps)
+
     return pts, simps
+
+
+    
+def rm_dup_pts(pts, simps):
+
+    pts_u, inv = np.unique(pts, axis=0, return_inverse=True)
+    simps_u = inv[simps]
+    
+    return pts_u, simps_u
+
+def rm_dup_simps(simps):
+    
+    simps_u = np.sort(simps, axis=1)
+    _, ind = np.unique(simps_u, axis=0, return_index=True)
+    simps_u = simps[ind, :]
+    
+    return simps_u
+
+def rm_degen_simps(simps):
+    
+    ndims = simps.shape[1]
+    
+    valid = (simps[:, 0] != simps[:, 1])
+    if ndims > 2:
+        valid = valid & (simps[:, 1] != simps[:, 2]) \
+                      & (simps[:, 2] != simps[:, 0])
+
+    return simps[valid]
+
+def rm_single_pts(pts, simps):
+    
+    ind_pts = np.unique(simps)
+    
+    old_to_new = np.full(len(pts), np.nan)
+    old_to_new[ind_pts] = np.arange(len(ind_pts))
+    
+    pts_clean = pts[ind_pts]
+    simps_clean = old_to_new[simps].astype(simps.dtype)
+    
+    return pts_clean, simps_clean
+
+    
+    
+def clean_mesh(pts, simps):
+    
+    pts_clean, simps_clean = rm_dup_pts(pts, simps)
+    simps_clean = rm_dup_simps(simps_clean)
+    simps_clean = rm_degen_simps(simps_clean)
+    pts_clean, simps_clean = rm_single_pts(pts_clean, simps_clean)
+    
+    return pts_clean, simps_clean
+
     
 
 def phase_align_contours(opts1, opts2, simps2=None, start=True, end=True):
@@ -547,40 +851,15 @@ def phase_align_contours(opts1, opts2, simps2=None, start=True, end=True):
         return opts2, simps2
 
 
-# def triangulate_path(path, n1, n2):
 
-#     simps = []
+def triangulate_path(path, pts1, pts2):
     
-#     for k in range(len(path) - 1):
-#         i_curr, j_curr = path[k]
-#         i_next, j_next = path[k + 1]
-        
-#         di = i_next - i_curr
-#         dj = j_next - j_curr
-        
-#         if di == 1 and dj == 0:
-#             simps.append([i_curr, i_next, n1 + j_curr])
-            
-#         elif di == 0 and dj == 1:
-#             simps.append([i_curr, n1 + j_curr, n1 + j_next])
-            
-#         elif di == 1 and dj == 1:
-#             simps.append([i_curr, i_next, n1 + j_next])
-#             simps.append([i_curr, n1 + j_curr, n1 + j_next])
-            
-#     simps.append([n1 - 1, 0, n1 + n2 - 1])
-#     simps.append([0, n1, n1 + n2 - 1])
-
-#     return jnp.array(simps)
-
-
-
-
-def triangulate_path(path, path_length, n1, n2):
+    npts1 = pts1.shape[0]
+    npts2 = pts2.shape[0]
     simps = []
     
-    # Only iterate over valid path entries
-    for k in range(path_length - 1):  # path_length is now a Python int after JIT
+    for k in range(len(path) - 1):
+        
         i_curr, j_curr = int(path[k, 0]), int(path[k, 1])
         i_next, j_next = int(path[k + 1, 0]), int(path[k + 1, 1])
         
@@ -588,19 +867,19 @@ def triangulate_path(path, path_length, n1, n2):
         dj = j_next - j_curr
         
         if di == 1 and dj == 0:
-            simps.append([i_curr, i_next, n1 + j_curr])
+            simps.append([i_curr, npts1 + j_curr, i_next])
             
         elif di == 0 and dj == 1:
-            simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            simps.append([i_curr, npts1 + j_curr, npts1 + j_next])
             
         elif di == 1 and dj == 1:
-            simps.append([i_curr, i_next, n1 + j_next])
-            simps.append([i_curr, n1 + j_curr, n1 + j_next])
+            simps.append([i_curr, npts1 + j_curr, i_next])
+            simps.append([i_next, npts1 + j_curr, npts1 + j_next])
             
-    simps.append([n1 - 1, 0, n1 + n2 - 1])
-    simps.append([0, n1, n1 + n2 - 1])
+    simps.append([npts1 - 1, npts1 + npts2 - 1, 0])
+    simps.append([0, npts1 + npts2 - 1, npts1])
 
-    return jnp.array(simps)
+    return jnp.vstack((pts1, pts2)), jnp.array(simps)
 
 
 
@@ -710,66 +989,6 @@ def triangle_path_dp(opts1, opts2):
     path = jnp.roll(path, -shift_amount, axis=0)
     
     return path, path_length
-
-# def triangle_path_dp(opts1, opts2):
-    
-#     opts1 = jnp.array(opts1)
-#     opts2 = jnp.array(opts2)
-#     n1, n2 = opts1.shape[0], opts2.shape[0]
-    
-#     dp = jnp.full((n1, n2), np.inf)
-#     dp = dp.at[0, 0].set(0)
-#     parent = jnp.zeros((n1, n2), dtype=int)
-    
-#     for i in range(n1):
-#         for j in range(n2):
-#             if i == 0 and j == 0: continue
-            
-#             candidates = jnp.full(3, np.inf)
-            
-#             # Option 0: step along opts2 from (i, j-1)
-#             if j > 0:
-#                 edge_cost = jnp.linalg.norm(opts1[i] - opts2[j])
-#                 candidates = candidates.at[0].set(dp[i, j-1] + edge_cost)
-            
-#             # Option 1: step along opts1 from (i-1, j)
-#             if i > 0:
-#                 edge_cost = jnp.linalg.norm(opts1[i] - opts2[j])
-#                 candidates = candidates.at[1].set(dp[i-1, j] + edge_cost)
-            
-#             # Option 2: diagonal from (i-1, j-1)
-#             if i > 0 and j > 0:
-#                 edge_cost = (jnp.linalg.norm(opts1[i] - opts2[j]) + 
-#                              jnp.linalg.norm(opts1[i-1] - opts2[j-1]))
-#                 candidates = candidates.at[2].set(dp[i-1, j-1] + edge_cost)
-            
-#             ind = jnp.argmin(candidates)
-#             dp = dp.at[i, j].set(candidates[ind])
-#             parent = parent.at[i, j].set(ind)  # Store 0, 1, or 2
-    
-#     # Backtrack to get path
-#     path = []
-#     i, j = n1 - 1, n2 - 1
-    
-#     while i >= 0 and j >= 0:
-#         path.append((i, j))
-        
-#         if i == 0 and j == 0:
-#             break
-        
-#         direction = parent[i, j]
-#         if direction == 2:
-#             i -= 1
-#             j -= 1
-#         elif direction == 0:
-#             j -= 1
-#         elif direction == 1:
-#             i -= 1
-#         else:
-#             break
-    
-#     path.reverse()
-#     return path
 
 
 def rasterize(contours, imshape=None):
@@ -995,21 +1214,145 @@ def render_vtkpoly(polydatas, wireframe=False):
 
 def plot_mesh(pts, simps, lib='plotly'):
     
+    dsimp = simps.shape[1]
+    
     if lib == 'plotly':
         fig = go.Figure()
-        fig.add_trace(go.Mesh3d(x=pts[:,0], y=pts[:,1], z=pts[:,2],
-                                i=simps[:,0], j=simps[:,1], k=simps[:,2],
-                                opacity=1, color='lightblue'))
+        if dsimp ==3:
+            fig.add_trace(go.Mesh3d(x=pts[:,0], y=pts[:,1], z=pts[:,2],
+                                    i=simps[:,0], j=simps[:,1], k=simps[:,2],
+                                    opacity=1, color='lightblue'))
+        elif dsimp == 2:
+            fig.add_trace(go.Mesh3d(x=pts[:,0], y=pts[:,1], z=pts[:,2],
+                                    i=simps[:,0], j=simps[:,1],
+                                    opacity=1, color='lightblue'))
+            
         fig.add_trace(go.Scatter3d(x=pts[:,0], y=pts[:,1], z=pts[:,2],
                                    mode='markers', marker=dict(size=5, color='blue', opacity=1)))
         fig.update_layout(scene=dict(aspectmode='data'))
         fig.show(auto_open=True)
     
     elif lib == 'pyvista':
-        simps_pv = np.hstack([[3, *tri] for tri in simps])
+        simps_pv = np.hstack([[dsimp, *tri] for tri in simps])
         mesh = pv.PolyData(pts, simps_pv)
         plotter = pv.Plotter()
         plotter.add_mesh(mesh, color="lightseagreen", show_edges=True)
         plotter.add_axes()
         plotter.show_grid()
         plotter.show()
+
+
+def graph_conv(A, X, K, normA='left', niter=1):
+    # normA: 'left' or 'right' or 'sym' or 'sinkhorn'
+    
+    A = A + np.eye(A.shape[0], dtype=int)
+    
+    if normA=='sinkhorn':
+        A_norm = A
+        for i in range(1000):
+            deg = np.sum(A_norm, axis=1)
+            D = np.diag(1/deg)
+            A_norm = np.matmul(D,A_norm)
+            deg = np.sum(A_norm, axis=0)
+            D = np.diag(1/deg)
+            A_norm = np.matmul(A_norm,D)
+    else:        
+        deg = np.sum(A, axis=0)
+        if normA == 'sym':
+            D = np.diag(1/np.sqrt(deg))
+            A_norm = np.matmul(np.matmul(D,A),D)
+        else:
+            D = np.diag(1/deg)
+            if normA == 'left':
+                A_norm = np.matmul(D,A)
+            elif normA == 'right':
+                A_norm = np.matmul(A,D)
+    
+    for _ in range(niter):
+        X = np.matmul(np.matmul(A_norm, X), K)
+    
+    return X
+
+
+def build_graph_conn(opts_list, thr):
+    
+    links_list = []
+    nodes_list = []
+    for i in range(len(opts_list) - 1):
+        
+        opts_curr = cw(opts_list[i])
+        opts_next = cw(opts_list[i+1])
+        n_curr = len(opts_curr)
+        n_next = len(opts_next)
+    
+        links = []
+        nodes = []
+        for j in range(n_curr):
+            opt_curr = open_contour(opts_curr[j])
+            
+            if opt_curr.shape[0] > 2:
+                poly_curr = Polygon(opt_curr)
+                poly_curr = make_valid(poly_curr)
+            else:
+                poly_curr = [Point(pt) for pt in opt_curr]
+                
+            for k in range(n_next):
+                opt_next = open_contour(opts_next[k])
+     
+                if opt_next.shape[0] > 2:
+                    poly_next = Polygon(opt_next)
+                    poly_next = make_valid(poly_next)
+                else:
+                    poly_next = [Point(pt) for pt in opt_next]
+                    
+                if opt_curr.shape[0] > 2 and opt_next.shape[0] > 2:
+                    inter = poly_curr.intersection(poly_next)
+                    overlap_1 = inter.area / poly_curr.area
+                    overlap_2 = inter.area / poly_next.area
+                    linked =  np.max((overlap_1, overlap_2)) > thr
+                    
+                elif opt_curr.shape[0] > 2 and opt_next.shape[0] < 3:
+                    linked = any([pt.within(poly_curr) for pt in poly_next])
+                    
+                elif opt_curr.shape[0] < 3 and opt_next.shape[0] > 2:
+                    linked = any([pt.within(poly_next) for pt in poly_curr])
+                
+                else: linked = False
+                        
+                if linked:
+                    links.append([j, k])
+                    
+            nodes.append(j)
+        nodes_list.append(nodes)
+        
+        if i == len(opts_list) - 2:
+            nodes = []
+            for j in range(n_next):
+                nodes.append(j)
+            nodes_list.append(nodes)
+        
+        links_list.append(links)   
+
+    return nodes_list, links_list
+
+
+def plot_graph_conn(nodes_list, links_list, col=[0,0,1]):
+    
+    n = len(nodes_list)
+    col_nodes = np.array(col)
+    col_links = (1 + col_nodes) / 2
+    plt.figure(figsize=(6,1))
+    
+    for i in range(n):
+        if i < n - 1:
+            links = links_list[i]
+            for j in range(len(links)):
+                plt.plot([i, i+1], links[j], color=col_links)
+        
+        nodes = nodes_list[i]
+        for j in range(len(nodes)):
+            plt.plot(i, nodes[j], '.', markersize=3, color=col_nodes)
+            
+    plt.ylim([-0.5, 1.5])  
+    plt.xlim([-1, n])
+    plt.show()
