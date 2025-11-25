@@ -104,19 +104,18 @@ class init_transfo():
     
 class opti_linear_transfo():
     
-    def __init__(self, transfo, gamma=1e-5, se=True):
+    def __init__(self, transfo, se=True): #  gamma=1e-5
         """ 
         transfo: 'rigid' or 'affine'
         """
         
         self.transfo = transfo
         self.se = se
-        self.gamma = gamma
+        # self.gamma = gamma
         
 
-    def compute(self, ref_pts, mov_pts,
-                      ref_pts_mu=None, mov_pts_mu=None):
-        
+    def fit(self, ref_pts, mov_pts,
+                  ref_pts_mu=None, mov_pts_mu=None):
         """
         Assumes that ref_pts and mov_pts are paired sets of points.
         """
@@ -127,6 +126,8 @@ class opti_linear_transfo():
             ref_pts_mu = jnp.mean(ref_pts, axis=0)
         if mov_pts_mu is None:
             mov_pts_mu = jnp.mean(mov_pts, axis=0)
+        self.ref_pts_mu = ref_pts_mu
+        self.mov_pts_mu = mov_pts_mu
         ref_pts_bar = ref_pts - ref_pts_mu
         mov_pts_bar = mov_pts - mov_pts_mu
             
@@ -161,17 +162,21 @@ class opti_linear_transfo():
         return A, t
 
 
+    def transform(self, A, t, mov_pts):
+        
+        return (mov_pts @ A.T) + t
+    
+    
 
 class opti_polynom_transfo():
     
-    def __init__(self, degree, gamma=1e-5, se=True):
+    def __init__(self, degree, se=True):
 
         self.degree = degree
     
 
-    def compute(self, ref_pts, mov_pts,
-                      ref_pts_mu=None, mov_pts_mu=None):
-        
+    def fit(self, ref_pts, mov_pts,
+                  ref_pts_mu=None, mov_pts_mu=None):
         """
         Assumes that ref_pts and mov_pts are paired sets of points.
         """
@@ -180,16 +185,16 @@ class opti_polynom_transfo():
             ref_pts_mu = jnp.mean(ref_pts, axis=0)
         if mov_pts_mu is None:
             mov_pts_mu = jnp.mean(mov_pts, axis=0)
+        self.ref_pts_mu = ref_pts_mu
+        self.mov_pts_mu = mov_pts_mu
         ref_pts_bar = ref_pts - ref_pts_mu
         mov_pts_bar = mov_pts - mov_pts_mu         
         
-        X, exponents = self.design_mat(mov_pts_bar)
+        X, _ = self.design_mat(mov_pts_bar)
         
         coeffs, _, _, _ = jnp.linalg.lstsq(X, ref_pts_bar, rcond=None)
-        
-        moved_pts = X @ coeffs + ref_pts_mu
 
-        return coeffs, moved_pts
+        return coeffs
     
     
     def design_mat(self, x):
@@ -206,4 +211,15 @@ class opti_polynom_transfo():
             X = X.at[:, j].set(jnp.prod(x ** jnp.array(e), axis=1))
             
         return X, exponents
+    
+    
+    def transform(self, coeffs, mov_pts, X=None):
+        
+        mov_pts_bar = mov_pts - self.mov_pts_mu
+        
+        if X is None:
+            X, _ = self.design_mat(mov_pts_bar)
+                    
+        return X @ coeffs + self.ref_pts_mu
+        
     

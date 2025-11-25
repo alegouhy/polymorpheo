@@ -204,34 +204,3 @@ utils.write_vtkpoly(poly_quad, 'output/mesh_dwich-quad_3.obj')
 # utils.write_vtkpoly(poly_quad_smo, 'output/mesh_dwich-quad_3_smooth.vtp')
 
 
-#%%
-
-# contours_test = contours_quad.copy()
-
-# for i, contour in enumerate(contours_test):
-    
-#     pts, simps, normals = contour
-#     print(contour)
-
-#     npts = pts.shape[0]
-#     pts = np.concatenate((pts, np.full((npts, 1), z_coords[i])), axis=1)
-#     pts[:,:2] = pts[:,:2] * std + mean
-#     pts = pts * voxdim
-#     contours_test[i] = pts, simps, None
-
-# pts_test, simps_test, _ = utils.concat_contours(contours_test)
-
-# utils.plot_mesh(pts_test, simps_test)
-
-# poly_test = utils.vtkpoly(pts_test, simps_test)
-# utils.write_vtkpoly(poly_test, 'output/mesh_test.vtp')
-# utils.render_vtkpoly([poly_test])
-
-# #%%
-
-# mesh_rto_file = "/Users/alegouhy/dev/polygons_to_mesh/data/mesh_smooth.ply"
-# poly_rto = utils.read_vtkpoly(mesh_rto_file)
-# utils.write_vtkpoly(poly_rto, 'output/mesh_rto.obj')
-
-
-

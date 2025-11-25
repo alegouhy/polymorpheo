@@ -21,11 +21,11 @@ npts = 100
 get_normals = True
 mov_contour = utils.seg_to_contour(mov_img, npts=npts, get_normals=get_normals)
 ref_contour = utils.seg_to_contour(ref_img, npts=npts, get_normals=get_normals)
-mov_pts, mov_simps, mov_normals = mov_contour
-ref_pts, ref_simps, ref_normals = ref_contour
+mov_pts, mov_simps, mov_normals, mov_labs = mov_contour
+ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
 [mov_pts, ref_pts], mean, std = utils.normalise_pts([mov_pts, ref_pts])
-mov_contour = mov_pts, mov_simps, mov_normals
-ref_contour = ref_pts, ref_simps, ref_normals
+mov_contour = mov_pts, mov_simps, mov_normals, mov_labs
+ref_contour = ref_pts, ref_simps, ref_normals, ref_labs
 
 plt.subplot(1,2,1)
 utils.plot_img(mov_img)
@@ -54,10 +54,12 @@ reg_rig = register.reg_linear(niter=niter, transfo=transfo, init=init, se=True, 
 
 t = time.time()
 rig, moved_contour = reg_rig.compute(ref_contour, mov_contour)
+
 print(f"rigid done in: {time.time()-t:.2f} s")
 
 utils.plot_contour(ref_contour, col=[1,0,0])
 utils.plot_contour(moved_contour, col=[0,0,1])
+plt.title('rigid')
 plt.show()
 
 #%% affine ICP
@@ -73,10 +75,11 @@ print(f"affine done in: {time.time()-t:.2f} s")
 
 utils.plot_contour(ref_contour, col=[1,0,0])
 utils.plot_contour(moved_contour, col=[0,0,1])
+plt.title('affine')
 plt.show()
 
 
-#%% polynom ICP
+#%% quadratic ICP
 
 niter = 20
 degree = 2
@@ -89,6 +92,24 @@ print(f"poly done in: {time.time()-t:.2f} s")
 
 utils.plot_contour(ref_contour, col=[1,0,0])
 utils.plot_contour(moved_contour, col=[0,0,1])
+plt.title('quadratic')
+plt.show()
+
+
+#%% quintic ICP
+
+niter = 20
+degree = 5
+
+reg_poly = register.reg_polynom(niter=niter, degree=degree, init='identity', se=True, plot=False)
+
+t = time.time()
+moved_contour = reg_poly.compute(ref_contour, mov_contour)
+print(f"poly done in: {time.time()-t:.2f} s")
+
+utils.plot_contour(ref_contour, col=[1,0,0])
+utils.plot_contour(moved_contour, col=[0,0,1])
+plt.title('quintic')
 plt.show()
 
 

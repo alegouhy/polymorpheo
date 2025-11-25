@@ -12,7 +12,7 @@ import transfo as transfo_ops
 
 class reg_linear():
     
-    def __init__(self, niter, transfo='rigid', init='identity', se=True, gamma=1e-5, plot=False):
+    def __init__(self, niter, transfo='rigid', init='identity', se=True, plot=False):
         """
         transfo: 'rigid', 'rigid2' or 'affine'
         init: 'identity', 'centroids', 'similarity' or 'ellipsoid'
@@ -21,37 +21,60 @@ class reg_linear():
         self.niter = niter
         self.plot = plot
         
-        self.opti_transfo_fun = transfo_ops.opti_linear_transfo(transfo, gamma=gamma, se=se)
+        self.opti_transfo_fun = transfo_ops.opti_linear_transfo(transfo, se=se)
         self.init_transfo = transfo_ops.init_transfo(init)
         
         
-    def compute(self, ref_contour, mov_contour, T0=None):
+    def compute(self, ref_contour, mov_contour, T0=None, use_labs=None):
         """
         T0 has priority over init.
         """
         
         ref_contour = [jnp.array(cont) if cont is not None else None for cont in ref_contour]
         mov_contour = [jnp.array(cont) if cont is not None else None for cont in mov_contour]
-        ref_pts, ref_simps, ref_normals = ref_contour
-        mov_pts, mov_simps, mov_normals = mov_contour
+        ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
+        mov_pts, mov_simps, mov_normals, mov_labs = mov_contour
         
+        if use_labs is None:
+            use_labs = ref_labs is not None     
+        if use_labs:
+            labs = jnp.intersect1d(mov_labs, ref_labs)
+            
         if T0 is None:
             T, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
         else:
             T = T0
             A, t = utils.aff_dehmgn(T)
-            moved_pts = (mov_pts @ A.T) + t 
+            moved_pts = (mov_pts @ A.T) + t
         
         for k in range(self.niter):
 
-            dist = utils.pts_sqdist(ref_pts, moved_pts)
-            ref_nn_ind = jnp.argmin(dist, axis=0)
-            ref_nn_pts = ref_pts[ref_nn_ind, :]
-            
-            lin, trans = self.opti_transfo_fun.compute(ref_nn_pts, moved_pts)
+            if use_labs:
+                ref_nn_pts = []
+                moved_pts_labs = []
+                for lab in labs:
+                    ref_pts_lab = ref_pts[ref_labs == lab, :]
+                    mov_ind_lab = mov_labs == lab
+                    moved_pts_lab = moved_pts[mov_ind_lab, :]
+                    dist = utils.pts_sqdist(ref_pts_lab, moved_pts_lab)
+                    ref_nn_ind = jnp.argmin(dist, axis=0)
+                    moved_pts_labs.append(moved_pts_lab)
+                    ref_nn_pts.append(ref_pts_lab[ref_nn_ind, :])
+                moved_pts_labs = jnp.vstack(moved_pts_labs)
+                ref_nn_pts = jnp.vstack(ref_nn_pts)
+ 
+                lin, trans = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts_labs)
 
-            moved_pts = (moved_pts @ lin.T) + trans
-            moved_contour = moved_pts, mov_simps, mov_normals    # rotate normals !!!
+            else:
+                dist = utils.pts_sqdist(ref_pts, moved_pts)
+                ref_nn_ind = jnp.argmin(dist, axis=0)
+                ref_nn_pts = ref_pts[ref_nn_ind, :]
+                
+                lin, trans = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts)  
+                
+            moved_pts = self.opti_transfo_fun.transform(lin, trans, moved_pts)
+            
+            moved_contour = moved_pts, mov_simps, mov_normals, mov_labs    # should rotate normals !!!
         
             T = utils.aff_hmgn(lin, trans) @ T
             
@@ -81,28 +104,52 @@ class reg_polynom():
         self.init_transfo = transfo_ops.init_transfo(init)
         
         
-    def compute(self, ref_contour, mov_contour, disp0=None):
+    def compute(self, ref_contour, mov_contour, disp0=None, use_labs=None):
         """
         disp0 has priority over init.
         """
         
-        ref_pts, ref_simps, ref_normals = ref_contour
-        mov_pts, mov_simps, mov_normals = mov_contour
+        ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
+        mov_pts, mov_simps, mov_normals, mov_labs = mov_contour
         
+        if use_labs is None:
+            use_labs = ref_labs is not None     
+        if use_labs:
+            labs = jnp.intersect1d(mov_labs, ref_labs)
+            
         if disp0 is None:
             _, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
         else:
             moved_pts = mov_pts + disp0
         
         for k in range(self.niter):
-
-            dist = utils.pts_sqdist(ref_pts, moved_pts)
-            ref_nn_ind = jnp.argmin(dist, axis=0)
-            ref_nn_pts = ref_pts[ref_nn_ind, :]
+                        
+            if use_labs:
+                ref_nn_pts = []
+                moved_pts_labs = []
+                for lab in labs:
+                    ref_pts_lab = ref_pts[ref_labs == lab, :]
+                    mov_ind_lab = mov_labs == lab
+                    moved_pts_lab = moved_pts[mov_ind_lab, :]
+                    dist = utils.pts_sqdist(ref_pts_lab, moved_pts_lab)
+                    ref_nn_ind = jnp.argmin(dist, axis=0)
+                    moved_pts_labs.append(moved_pts_lab)
+                    ref_nn_pts.append(ref_pts_lab[ref_nn_ind, :])
+                moved_pts_labs = jnp.vstack(moved_pts_labs)
+                ref_nn_pts = jnp.vstack(ref_nn_pts)
+                
+                coeffs = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts_labs)
             
-            _, moved_pts = self.opti_transfo_fun.compute(ref_nn_pts, moved_pts)
+            else:
+                dist = utils.pts_sqdist(ref_pts, moved_pts)
+                ref_nn_ind = jnp.argmin(dist, axis=0)
+                ref_nn_pts = ref_pts[ref_nn_ind, :]
+                
+                coeffs = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts)
+                
+            moved_pts = self.opti_transfo_fun.transform(coeffs, moved_pts)
 
-            moved_contour = moved_pts, mov_simps, mov_normals    # rotate normals !!!
+            moved_contour = moved_pts, mov_simps, mov_normals, mov_labs    # should rotate normals !!!
             
             if self.plot:
                 if k % self.plot == 0:
