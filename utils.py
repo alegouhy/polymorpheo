@@ -326,15 +326,20 @@ def splitfit_opts(opts_1, opts_2):
 #     return opts_1_split
 
 
-def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False):
-
-    opts_list = skimage.measure.find_contours(seg > 0)
+def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False, relab=True):
     
-    opts_list = [opts[:,[1,0]] for opts in opts_list]
+    labs = np.unique(seg[seg > 0])
     
-    contour = opts_to_contour(opts_list, npts=npts, get_simps=get_simps, get_normals=get_normals)
-
-    return contour
+    contours = []
+    for l in range(len(labs)):
+        
+        opts_list = skimage.measure.find_contours(seg == labs[l])
+        opts_list = [opts[:,[1,0]] for opts in opts_list]
+        lab = l + 1 if relab else labs[l]
+        contour = opts_to_contour(opts_list, npts=npts, get_simps=get_simps, get_normals=get_normals, lab=lab)
+        contours.append(contour)
+    
+    return concat_contours(contours)  
 
 
 @jax.jit
@@ -507,16 +512,16 @@ def neighs_contour(simps, npts=None):
     return neighs
 
             
-def normalise_pts(pts_list, mean=None, std=None):
+def normalise_pts(pts_list, mu=None, amp=None):
     
     pts_all = np.concatenate(pts_list, axis=0)
     
-    if mean is None: mean = np.mean(pts_all, axis=0)
-    if std is None: std = np.std(pts_all, axis=0)
+    if mu is None: mu = np.mean(pts_all, axis=0)
+    if amp is None: amp = np.max(np.abs(pts_all - mu))
     
-    pts_norm = [(pts - mean) / std for pts in pts_list]
+    pts_norm = [(pts - mu) / amp for pts in pts_list]
     
-    return pts_norm, mean, std
+    return pts_norm, mu, amp
 
 
 def plot_img(img):
@@ -529,7 +534,7 @@ def plot_img(img):
     
 def plot_contour(contour,
                  col=None, cmap='tab20', linewidth=1, markersize=6,
-                 xlim=[-2,2], ylim=[-2,2], scal_normals=0.1):
+                 xlim=[-1.3,1.3], ylim=[-1.3,1.3], scal_normals=0.1):
     
     pts, simps, normals, labs = contour
     npts, ndims = pts.shape

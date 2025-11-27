@@ -9,16 +9,18 @@ import transfo as transfo_ops
 
 
 #%%
-
+    
+    
 class reg_linear():
     
-    def __init__(self, niter, transfo='rigid', init='identity', se=True, plot=False):
+    def __init__(self, niter, transfo='rigid', init='identity', se=True, bidir=False, plot=False):
         """
         transfo: 'rigid', 'rigid2' or 'affine'
         init: 'identity', 'centroids', 'similarity' or 'ellipsoid'
         """
         self.init = init
         self.niter = niter
+        self.bidir = bidir
         self.plot = plot
         
         self.opti_transfo_fun = transfo_ops.opti_linear_transfo(transfo, se=se)
@@ -30,16 +32,22 @@ class reg_linear():
         T0 has priority over init.
         """
         
-        ref_contour = [jnp.array(cont) if cont is not None else None for cont in ref_contour]
+        if hasattr(ref_contour, 'shape'): ref_contours = [ref_contour]
+        else: ref_contours = ref_contour
+        
+        ref_pts_list = []
+        ref_labs_list = []
+        ref_contour_list = []
+        for ref_contour in ref_contours:
+            ref_contour = [jnp.array(cont) if cont is not None else None for cont in ref_contour]
+            ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
+            ref_pts_list.append(ref_pts)
+            ref_labs_list.append(ref_labs)
+            ref_contour_list.append(ref_contour)
+            
         mov_contour = [jnp.array(cont) if cont is not None else None for cont in mov_contour]
-        ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
         mov_pts, mov_simps, mov_normals, mov_labs = mov_contour
         
-        if use_labs is None:
-            use_labs = ref_labs is not None     
-        if use_labs:
-            labs = jnp.intersect1d(mov_labs, ref_labs)
-            
         if T0 is None:
             T, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
         else:
@@ -48,29 +56,9 @@ class reg_linear():
             moved_pts = (mov_pts @ A.T) + t
         
         for k in range(self.niter):
-
-            if use_labs:
-                ref_nn_pts = []
-                moved_pts_labs = []
-                for lab in labs:
-                    ref_pts_lab = ref_pts[ref_labs == lab, :]
-                    mov_ind_lab = mov_labs == lab
-                    moved_pts_lab = moved_pts[mov_ind_lab, :]
-                    dist = utils.pts_sqdist(ref_pts_lab, moved_pts_lab)
-                    ref_nn_ind = jnp.argmin(dist, axis=0)
-                    moved_pts_labs.append(moved_pts_lab)
-                    ref_nn_pts.append(ref_pts_lab[ref_nn_ind, :])
-                moved_pts_labs = jnp.vstack(moved_pts_labs)
-                ref_nn_pts = jnp.vstack(ref_nn_pts)
- 
-                lin, trans = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts_labs)
-
-            else:
-                dist = utils.pts_sqdist(ref_pts, moved_pts)
-                ref_nn_ind = jnp.argmin(dist, axis=0)
-                ref_nn_pts = ref_pts[ref_nn_ind, :]
-                
-                lin, trans = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts)  
+            
+            ref_nn_pts, mov_nn_pts = nearest_neighbors(ref_pts_list, moved_pts, ref_labs_list, mov_labs, self.bidir)
+            lin, trans = self.opti_transfo_fun.fit(ref_nn_pts, mov_nn_pts)  
                 
             moved_pts = self.opti_transfo_fun.transform(lin, trans, moved_pts)
             
@@ -87,17 +75,19 @@ class reg_linear():
             
         return T, moved_contour
         
+  
         
 #%%
 
 class reg_polynom():
     
-    def __init__(self, niter, degree=2, init='identity', se=True, plot=False):
+    def __init__(self, niter, degree=2, init='identity', se=True, bidir=False, plot=False):
         """
         init: 'identity', 'centroids', 'similarity' or 'ellipsoid'
         """
         self.init = init
         self.niter = niter
+        self.bidir = bidir
         self.plot = plot
         
         self.opti_transfo_fun = transfo_ops.opti_polynom_transfo(degree, se=se)
@@ -111,11 +101,6 @@ class reg_polynom():
         
         ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
         mov_pts, mov_simps, mov_normals, mov_labs = mov_contour
-        
-        if use_labs is None:
-            use_labs = ref_labs is not None     
-        if use_labs:
-            labs = jnp.intersect1d(mov_labs, ref_labs)
             
         if disp0 is None:
             _, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
@@ -123,29 +108,9 @@ class reg_polynom():
             moved_pts = mov_pts + disp0
         
         for k in range(self.niter):
-                        
-            if use_labs:
-                ref_nn_pts = []
-                moved_pts_labs = []
-                for lab in labs:
-                    ref_pts_lab = ref_pts[ref_labs == lab, :]
-                    mov_ind_lab = mov_labs == lab
-                    moved_pts_lab = moved_pts[mov_ind_lab, :]
-                    dist = utils.pts_sqdist(ref_pts_lab, moved_pts_lab)
-                    ref_nn_ind = jnp.argmin(dist, axis=0)
-                    moved_pts_labs.append(moved_pts_lab)
-                    ref_nn_pts.append(ref_pts_lab[ref_nn_ind, :])
-                moved_pts_labs = jnp.vstack(moved_pts_labs)
-                ref_nn_pts = jnp.vstack(ref_nn_pts)
                 
-                coeffs = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts_labs)
-            
-            else:
-                dist = utils.pts_sqdist(ref_pts, moved_pts)
-                ref_nn_ind = jnp.argmin(dist, axis=0)
-                ref_nn_pts = ref_pts[ref_nn_ind, :]
-                
-                coeffs = self.opti_transfo_fun.fit(ref_nn_pts, moved_pts)
+            ref_nn_pts, mov_nn_pts = nearest_neighbors(ref_pts, moved_pts, ref_labs, mov_labs, self.bidir)
+            coeffs = self.opti_transfo_fun.fit(ref_nn_pts, mov_nn_pts)  
                 
             moved_pts = self.opti_transfo_fun.transform(coeffs, moved_pts)
 
@@ -272,3 +237,50 @@ class reg_deformable():
 #         moved_contour = moved_pts, mov_simps, mov_normals
     
 #         return disp, moved_contour, losses
+
+
+#%%
+
+def nearest_neighbors(ref_pts, mov_pts, ref_labs=None, mov_labs=None, bidir=False):
+    
+    use_labs = ref_labs is not None and mov_labs is not None 
+    if use_labs:
+        labs = jnp.intersect1d(mov_labs, ref_labs)
+
+    ref_nn_pts = []
+    mov_nn_pts = []
+    
+    if not use_labs:
+
+        dist = utils.pts_sqdist(ref_pts, mov_pts)
+        
+        ref_nn_ind = jnp.argmin(dist, axis=0)
+        ref_nn_pts.append(ref_pts[ref_nn_ind, :])
+        mov_nn_pts.append(mov_pts) 
+        if bidir:
+            mov_nn_ind = jnp.argmin(dist, axis=1)
+            mov_nn_pts.append(mov_pts[mov_nn_ind, :])
+            ref_nn_pts.append(ref_pts)
+        
+    else:  
+        
+        for lab in labs:
+            
+            ref_pts_lab = ref_pts[ref_labs == lab, :]
+            mov_ind_lab = mov_labs == lab
+            mov_pts_lab = mov_pts[mov_ind_lab, :]
+            
+            dist = utils.pts_sqdist(ref_pts_lab, mov_pts_lab)
+            
+            ref_nn_ind = jnp.argmin(dist, axis=0)
+            ref_nn_pts.append(ref_pts_lab[ref_nn_ind, :])
+            mov_nn_pts.append(mov_pts_lab)
+            if bidir:
+                mov_nn_ind = jnp.argmin(dist, axis=1)
+                mov_nn_pts.append(mov_pts_lab[mov_nn_ind, :])
+                ref_nn_pts.append(ref_pts_lab)
+            
+    ref_nn_pts = jnp.vstack(ref_nn_pts)
+    mov_nn_pts = jnp.vstack(mov_nn_pts)
+        
+    return ref_nn_pts, mov_nn_pts
