@@ -134,47 +134,47 @@ plt.tight_layout()
 
 #%% non-rigid ICP
 
-# niter = 50
-# # lr = [1e-2, 1e-3, 1e-4]
-# # wreg = [1e-1, 1e-2, 1e-4]
-# lr = [1e-2, 1e-2]
-# wreg = [1e-1, 1e-2] # [1e-1]
-# int_steps = 16
-# sigma = None # 1e-3 # 'silverman'
+niter = 50
+# lr = [1e-2, 1e-3, 1e-4]
+# wreg = [1e-1, 1e-2, 1e-4]
+lr = [2e-2]
+wreg = [1e-1, 1e-1] # [1e-1]
+int_steps = 16
+sigma = 1e-1 # 1e-1 # 'silverman'
 
-# fit_fun = energy.pointdist(dist='chamfer', normtype='l1')
+fit_fun = energy.pointdist(agg='mean', l=2)
 
-# # regul_fun =  energy.grad_disp(normtype='l2')
+regul_fun = energy.grad_disp(l=2)
 # regul_fun =  energy.alap(transfo='similarity', normtype='l2')
-# neighs = utils.neighs_contour(mov_simps, mov_pts.shape[0])
+neighs = utils.neighs_contour(mov_simps, mov_pts.shape[0])
 # regul_fun.set_neighs(neighs)
 
-# disp = utils.aff_mat2disp(aff, mov_pts)
+disp = utils.aff_mat2disp(aff, mov_pts)
 
-# moved_contour = mov_pts + disp, mov_simps, mov_normals
-# utils.plot_contour(ref_contour, col=[1,0,0])
-# utils.plot_contour(moved_contour, col=[0,0,1])
-# plt.show()
+moved_contour = mov_pts + disp, mov_simps, mov_normals, mov_labs
+utils.plot_contour(ref_contour, col=[1,0,0])
+utils.plot_contour(moved_contour, col=[0,0,1])
+plt.show()
 
-# losses = []
-# t = time.time()
-# for i in range(len(lr)):
+losses = []
+t = time.time()
+for i in range(len(lr)):
     
-#     reg_defo = register.reg_deformable(niter=niter, fit_fun=fit_fun, regul_fun=regul_fun,
-#                                        lr=lr[i], wreg=wreg[i], sigma=sigma, int_steps=int_steps, plot=1)
+    reg_defo = register.reg_deformable(niter=niter, fit_fun=fit_fun, regul_fun=regul_fun,
+                                       lr=lr[i], wreg=wreg[i], sigma=sigma, int_steps=int_steps, plot=1)
     
-#     disp, moved_contour, loss = reg_defo.compute(ref_contour, mov_contour, disp0=disp)
+    disp, moved_contour, loss = reg_defo.compute(ref_contour, mov_contour, disp0=disp)
     
-#     losses.append(loss)
+    losses.append(loss)
 
-# print(f"deformable done in: {time.time()-t:.2f} s")
+print(f"deformable done in: {time.time()-t:.2f} s")
 
-# utils.plot_contour(ref_contour, col=[1,0,0])
-# utils.plot_contour(moved_contour, col=[0,0,1])
-# plt.show()
+utils.plot_contour(ref_contour, col=[1,0,0])
+utils.plot_contour(moved_contour, col=[0,0,1])
+plt.show()
 
-# for i in range(len(lr)):
-#     plt.subplot(1,len(lr),i+1)
-#     plt.plot(losses[i])
-#     plt.suptitle('energy')
-# plt.show()
+for i in range(len(lr)):
+    plt.subplot(1,len(lr),i+1)
+    plt.plot(losses[i])
+    plt.suptitle('energy')
+plt.show()

@@ -15,45 +15,41 @@ class kernel_disp():
         self.int_step_max = int_steps if int_step_max is None else int_step_max
         self.eps = eps
         
-    def compute(self, pts, c_pts, log_c_disp, invert=False):
-        # pts:        (npts, ndims),   points where we want to evaluate the disp.
-        # c_pts:      (ncpts, ndims),  points where the disp is known.              
-        # log_c_disp: (ncpts, ndims),  disp in log form at points c_pts.
+    def compute(self, pts, cpts, theta):
+        # pts:   (npts, ndims),   points where we want to evaluate the disp.
+        # cpts:  (ncpts, ndims),  points where theta is known.              
+        # theta: (ncpts, ndims),  transfo params.
         
-        if invert:
-            if log_c_disp is not None: log_c_disp *= -1
-        self.invert = invert
-
         if self.sigma == 'silverman':
-            self.sigma = self.sigma_silverman(c_pts)        
+            self.sigma = self.sigma_silverman(cpts)        
         
-        disp = self.get_disp(pts, c_pts, log_c_disp)
+        disp = self.interp(pts, cpts, theta)
 
         if self.int_steps > 0:
-            disp = self.exp_disp(disp, pts, c_pts, log_c_disp)
+            disp = self.lie_exp(disp, pts, cpts, theta)
 
         return disp
 
     
-    def exp_disp(self, disp, pts, c_pts, log_c_disp):
+    def lie_exp(self, disp, pts, cpts, theta):
         
         disp = disp / self.int_steps
         for i in range(self.int_step_max):
-            disp += self.get_disp(pts + disp, c_pts, log_c_disp) / self.int_steps
+            disp += self.interp(pts + disp, cpts, theta) / self.int_steps
 
         return disp
 
     
-    def get_disp(self, pts, c_pts, log_c_disp):
+    def interp(self, pts, cpts, theta):
             
-        sqdist = utils.pts_sqdist(pts, c_pts)                                  # (npts, ncpts)
+        sqdist = utils.pts_dist(pts, cpts)                                  # (npts, ncpts)
         weight = jnp.exp(-sqdist / (2*self.sigma**2))                            
         weight = weight / (jnp.sum(weight, axis=1)[...,None] + self.eps)
 
-        disp = weight @ log_c_disp                                             # (npts, ndims)
+        disp = weight @ theta                                               # (npts, ndims)
             
         return disp
-        
+
         
     def sigma_silverman(self, pts):
         

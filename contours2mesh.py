@@ -11,10 +11,11 @@ import register
 
 class io():
     
-    def __init__(self, datadir, names, spacing, npts=None):
+    def __init__(self, datadir, names, spacing, npts=None, npts_min=1):
         
         self.spacing = spacing
         self.npts = npts
+        self.npts_min = npts_min
         self.nlabs = len(names)
         self.names = names
         self.files = [os.path.join(datadir, name + '.npz') for name in names]
@@ -28,6 +29,7 @@ class io():
         self.pts_mu = np.mean(pts_all, axis=0)
         self.pts_amp = np.max(np.abs(pts_all - self.pts_mu))
         
+        ii = 0
         polylines = []
         for i in range(nslices):
         
@@ -35,6 +37,7 @@ class io():
             for l in range(self.nlabs):
                 opts = opts_lists[l][i]
                 if opts is None: continue
+                opts = [opt for opt in opts if len(opt) >= self.npts_min]
                 polyline_l = utils.opts_to_contour(opts, npts=self.npts, get_simps=True, lab=l+1)
                 polyline.append(polyline_l)
             if len(polyline) == 0: continue
@@ -45,10 +48,10 @@ class io():
             
             polyline = pts, simps, None, labs
             polylines.append(polyline)
-            
+            ii += 1
             if plot:
                 utils.plot_contour(polyline)
-                plt.title(str(i))
+                plt.title(str(i) + ', ' + str(ii))
                 plt.show()
           
         return polylines
@@ -69,22 +72,54 @@ class io():
             utils.write_vtkpoly(poly, out_file)
       
     
+
+     
+# class register_slices():
     
+#     def __init__(self, transfo, 
+#                  startmid=
+#                  init='identity', niter=1, degree=2, icp_niter=30, bidir=True,
+#                  fit_fun=None, regul_fun=None, lr=1e-2, wreg=1e-1, sigma=1e-1, int_steps=16, plot=False):
+        
+#         self.method = method   
+#         self.niter = niter
+#         if transfo in ('rig', 'rigid', 'aff', 'affine'):
+#             self.transfo_type = 'linear'
+#             self.reg = register.reg_linear(niter=icp_niter, transfo=transfo, init=init, se=True, bidir=bidir, plot=plot)
+#         elif transfo in ('poly', 'polynomial'):
+#             self.transfo_type = 'polynomial'
+#             self.reg = register.reg_polynom(niter=icp_niter, degree=degree, init=init, se=True, bidir=bidir, plot=plot)
+#         elif transfo == 'deformable':
+#             self.transfo_type = 'deformable'
+#             self.reg = register.reg_deformable(niter=icp_niter, fit_fun=fit_fun, regul_fun=regul_fun, 
+#                                                lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps, plot=plot)
+            
+            
+            
+#     def compute(self, polylines):     
+            
     
+
+            
 class register_slices():
     
-    def __init__(self, method, transfo, init, niter=1, degree=2, icp_niter=30, bidir=True, plot=False):
+    def __init__(self, method, transfo, init='identity', niter=1, degree=2, icp_niter=30, bidir=True,
+                 fit_fun=None, regul_fun=None, lr=1e-2, wreg=1e-1, sigma=1e-1, int_steps=16, plot=False):
         
         self.method = method   
         self.niter = niter
         if transfo in ('rig', 'rigid', 'aff', 'affine'):
             self.transfo_type = 'linear'
             self.reg = register.reg_linear(niter=icp_niter, transfo=transfo, init=init, se=True, bidir=bidir, plot=plot)
-        elif transfo in ('poly', 'polynom'):
-            self.transfo_type = 'polynom'
+        elif transfo in ('poly', 'polynomial'):
+            self.transfo_type = 'polynomial'
             self.reg = register.reg_polynom(niter=icp_niter, degree=degree, init=init, se=True, bidir=bidir, plot=plot)
+        elif transfo == 'deformable':
+            self.transfo_type = 'deformable'
+            self.reg = register.reg_deformable(niter=icp_niter, fit_fun=fit_fun, regul_fun=regul_fun, 
+                                               lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps, plot=plot)
             
-  
+            
     def compute(self, polylines):
         
         if self.method == 0:
@@ -117,25 +152,32 @@ class register_slices():
                 
                 if self.transfo_type == 'linear':
                     _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)     
-                elif self.transfo_type == 'polynom':
+                    
+                elif self.transfo_type == 'polynomial':
                     moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                    
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
                     
                 polylines[i+1] = moved_polyline
                
-            for i in reversed(range(1,midslice)):
+            for i in reversed(range(1,midslice+1)):
                 
                 ref_polyline = polylines[i]
                 mov_polyline = polylines[i-1]
     
                 if self.transfo_type == 'linear':
-                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline) 
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                    
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
                     
                 polylines[i-1] = moved_polyline
             
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
         return polylines
             
@@ -162,17 +204,24 @@ class register_slices():
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
                     moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
                     moved_pts = (moved_pts_prev + moved_pts_next) / 2  
                     
+                elif self.transfo_type == 'deformable':
+                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
+                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
+                    theta = (theta_prev + theta_next) / 2
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    moved_pts = mov_pts + disp
+                    
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
                 polylines[i] = moved_polyline
             
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
         return polylines
         
@@ -200,17 +249,24 @@ class register_slices():
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
                     moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
                     moved_pts = (moved_pts_prev + moved_pts_next) / 2  
                     
+                elif self.transfo_type == 'deformable':
+                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
+                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
+                    theta = (theta_prev + theta_next) / 2
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    moved_pts = mov_pts + disp
+                    
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
                 polylines[i] = moved_polyline  
                 
-            for i in reversed(range(1,midslice)):
+            for i in reversed(range(1,midslice+1)):
 
                 prev_polyline = polylines[i+1]
                 next_polyline = polylines0[i-1]
@@ -224,17 +280,24 @@ class register_slices():
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
                     moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
                     moved_pts = (moved_pts_prev + moved_pts_next) / 2  
                     
+                elif self.transfo_type == 'deformable':
+                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
+                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
+                    theta = (theta_prev + theta_next) / 2
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    moved_pts = mov_pts + disp
+                    
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
                 polylines[i] = moved_polyline
 
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
         return polylines
     
@@ -261,43 +324,57 @@ class register_slices():
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans                 
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
                     moved_polyline_next = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline 
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
                     moved_pts = (moved_pts_prev + moved_pts_next) / 2
+                    
+                elif self.transfo_type == 'deformable':
+                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
+                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
+                    theta = (theta_prev + theta_next) / 2
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    moved_pts = mov_pts + disp
                 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
                 polylines[i] = moved_polyline
              
-            polylines_aff0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
             for i in range(0, nslice, 2):
-                
+
                 mov_polyline = polylines0[i]
-                prev_polyline = polylines_aff0[i-1] if i > 0 else None
-                next_polyline = polylines_aff0[i+1]
+                prev_polyline = polylines0[i-1] if i > 0 else None
+                next_polyline = polylines0[i+1] if i < nslice - 1 else None
                 mov_pts, mov_simps, _, mov_labs = mov_polyline
                 
                 if self.transfo_type == 'linear':
                     aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.eye(3), None)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline)    
+                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.eye(3), None)
                     aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans                 
                     
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else mov_polyline 
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
+                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline 
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
                     moved_pts = (moved_pts_prev + moved_pts_next) / 2
+                    
+                elif self.transfo_type == 'deformable':
+                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.zeros_like(mov_pts), None, None)
+                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
+                    theta = (theta_prev + theta_next) / 2
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    moved_pts = mov_pts + disp
                 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
                 polylines[i] = moved_polyline
              
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
         return polylines
         
@@ -310,43 +387,43 @@ class register_slices():
 
         for _ in range(self.niter):
 
-            for i in range(1, nslice, 2):
+            for i in range(1, nslice-1, 2):
                 
                 mov_polyline = polylines0[i]
-                ref_polyline = [polylines0[i-1]]
-                if i < nslice - 1: ref_polyline += [polylines0[i+1]]   
-                ref_polyline = utils.concat_contours(ref_polyline)
+                ref_polyline = [polylines0[i-1], polylines0[i+1]]
                 
                 if self.transfo_type == 'linear':
                     _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-    
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
+                    
                 polylines[i] = moved_polyline
              
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
-            for i in range(0, nslice, 2):
+            for i in range(2, nslice-1, 2):
                 
                 mov_polyline = polylines0[i]   
-                ref_polyline = [polylines0[i+1]]
-                if i > 0: ref_polyline += [polylines0[i-1]]
-                ref_polyline = utils.concat_contours(ref_polyline)
-                
+                ref_polyline = [polylines0[i-1], polylines0[i+1]]
+
                 if self.transfo_type == 'linear':
                     _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == 'polynom':
+                elif self.transfo_type == 'polynomial':
                     moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-    
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
+                    
                 polylines[i] = moved_polyline
              
-            polylines0 = polylines.copy()
+            polylines0 = copy.deepcopy(polylines)
             
         return polylines
     
     
     def _method_5(self, polylines):
-        
+
         nslice = len(polylines)
         midslice = int(nslice / 2)
         polylines = copy.deepcopy(polylines)
@@ -355,57 +432,49 @@ class register_slices():
         for _ in range(self.niter):
             
             for i in range(midslice+1, nslice-1):               
-                # plt.subplot(3,3,1); utils.plot_contour(polylines0[i-1])
-                # plt.subplot(3,3,2); utils.plot_contour(polylines0[i])
-                # plt.subplot(3,3,3); utils.plot_contour(polylines0[i+1])
-                # plt.subplot(3,3,4); utils.plot_contour(polylines[i-1])
-                # plt.subplot(3,3,5); utils.plot_contour(polylines[i])
-                # plt.subplot(3,3,6); utils.plot_contour(polylines[i+1])
-                
+
                 mov_polyline = polylines0[i]
                 ref_polyline = [polylines[i-1], polylines0[i+1]]
-                ref_polyline = utils.concat_contours(ref_polyline)
-                _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                if self.transfo_type == 'linear':
+                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                elif self.transfo_type == 'polynomial':   
+                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
                 polylines[i] = moved_polyline
-            
-                # plt.subplot(3,3,7); utils.plot_contour(polylines[i-1])
-                # plt.subplot(3,3,8); utils.plot_contour(polylines[i])
-                # plt.subplot(3,3,9); utils.plot_contour(polylines[i+1])
-                # plt.suptitle(i); plt.show()
             
             polylines0 = copy.deepcopy(polylines)
                 
             for i in reversed(range(1, midslice)):
-                # plt.subplot(3,3,1); utils.plot_contour(polylines0[i-1])
-                # plt.subplot(3,3,2); utils.plot_contour(polylines0[i])
-                # plt.subplot(3,3,3); utils.plot_contour(polylines0[i+1])
-                # plt.subplot(3,3,4); utils.plot_contour(polylines[i-1])
-                # plt.subplot(3,3,5); utils.plot_contour(polylines[i])
-                # plt.subplot(3,3,6); utils.plot_contour(polylines[i+1])
-                
+
                 mov_polyline = polylines0[i]
                 ref_polyline = [polylines0[i-1], polylines[i+1]]
-                ref_polyline = utils.concat_contours(ref_polyline)
-                _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                if self.transfo_type == 'linear':
+                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                elif self.transfo_type == 'polynomial':
+                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
+                elif self.transfo_type == 'deformable':
+                    _, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)    
                 polylines[i] = moved_polyline
-                
-                # plt.subplot(3,3,7); utils.plot_contour(polylines[i-1])
-                # plt.subplot(3,3,8); utils.plot_contour(polylines[i])
-                # plt.subplot(3,3,9); utils.plot_contour(polylines[i+1])
-                # plt.suptitle(i); plt.show()
             
             polylines0 = copy.deepcopy(polylines)
             
         return polylines
     
-            
+                # plt.subplot(3,3,1); utils.plot_contour(polylines0[i-1])
+                # plt.subplot(3,3,2); utils.plot_contour(polylines0[i])
+                # plt.subplot(3,3,3); utils.plot_contour(polylines0[i+1])
+                # plt.subplot(3,3,4); utils.plot_contour(polylines[i-1])
+                # plt.subplot(3,3,5); utils.plot_contour(polylines[i])
+                # plt.subplot(3,3,6); utils.plot_contour(polylines[i+1])
+                
 class bridge_contours():
     
-    def __init__(self, thr_conn=1/3, greedy=False):
+    def __init__(self, thr_conn=1/3, greedy=False, sealed=True):
         
         self.thr_conn = thr_conn
         self.greedy = greedy
-        
+        self.sealed = sealed
         
     def compute(self, polylines):       
         
@@ -413,9 +482,14 @@ class bridge_contours():
         labs = np.unique(np.concatenate([polyline[3] for polyline in polylines]))
         z_coords = np.arange(nslices)
         
+        if isinstance(self.thr_conn, (list, tuple, np.ndarray)):
+            thr_conn = self.thr_conn
+        else: 
+            thr_conn = [self.thr_conn] * len(labs)
+            
         meshes = []
         for l in range(len(labs)):
-            
+
             polylines_l = [utils.extract_polyline(polyline, polyline[3] == l + 1) for polyline in polylines]
             opts_list = []
             
@@ -425,40 +499,8 @@ class bridge_contours():
                 opts = utils.contours2opts(np.array(polyline_l[0]), np.array(polyline_l[1]))
                 opts_list.append(opts)
                 
-            pts, simps = utils.bridge_contours_2(opts_list, z_coords, greedy=self.greedy, thr_conn=self.thr_conn)
+            pts, simps = utils.bridge_contours_2(opts_list, z_coords, greedy=self.greedy, thr_conn=thr_conn[l], sealed=self.sealed)
             meshes.append([pts, simps])
         
         return meshes
     
-    
-    
-    def _method_5(self, polylines):
-        
-        nslice = len(polylines)
-        midslice = int(nslice / 2)
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        
-        for _ in range(self.niter):
-            
-            for i in range(midslice+1, nslice-1):               
-
-                mov_polyline = polylines0[i]
-                ref_polyline = [polylines[i-1], polylines0[i+1]]
-                ref_polyline = utils.concat_contours(ref_polyline)
-                _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                polylines[i] = moved_polyline
-            
-            polylines0 = copy.deepcopy(polylines)
-                
-            for i in reversed(range(1, midslice)):
-
-                mov_polyline = polylines0[i]
-                ref_polyline = [polylines0[i-1], polylines[i+1]]
-                ref_polyline = utils.concat_contours(ref_polyline)
-                _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-            
-        return polylines
