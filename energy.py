@@ -141,6 +141,29 @@ class alap():
         return arap
 
 
+
+# def energy_total(theta, mov_contour, ref_contour_list, fit_fun, regul_fun, wreg, kernel_fun):
+
+#     mov_pts, mov_simps, mov_normal, mov_labs = mov_contour
+
+#     regul = regul_fun.compute(theta, mov_pts, mov_simps)
+
+#     if kernel_fun.sigma not in (0, None):
+#         disp = kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
+#     else:
+#         disp = theta
+#     moved_pts = mov_pts + disp
+
+#     fit = 0.0
+#     for ref_contour in ref_contour_list:
+#         ref_pts, ref_simps, ref_normals, ref_labs = ref_contour
+#         fit += fit_fun.compute(ref_pts, moved_pts)
+
+#     return fit + wreg * regul
+
+
+
+
 class energy_total():
 
     def __init__(self, fit_fun, regul_fun, wreg, kernel_fun):
@@ -164,7 +187,7 @@ class energy_total():
         regul = self.regul_fun.compute(theta, mov_pts, mov_simps)
         
         if self.kernel_fun.sigma not in (0, None):
-            disp = self.kernel_fun.compute(mov_pts, mov_pts, theta)
+            disp = self.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
         else: disp = theta
         moved_pts = mov_pts + disp
         

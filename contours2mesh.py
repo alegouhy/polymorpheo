@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.linalg import expm, logm
 import copy
+import time
 
 import utils
 import register
@@ -11,19 +12,22 @@ import register
 
 class io():
     
-    def __init__(self, datadir, names, spacing, npts=None, npts_min=1):
+    def __init__(self, datadir, names, spacing=None, npts=None, npts_min=1):
         
-        self.spacing = spacing
         self.npts = npts
         self.npts_min = npts_min
         self.nlabs = len(names)
+        self.datadir = datadir
         self.names = names
-        self.files = [os.path.join(datadir, name + '.npz') for name in names]
+        self.spacing = spacing if spacing is None else np.ones(3)
+        self.permut = [0, 1, 2]
         
     def load(self, plot=False):
         
-        opts_lists = [np.load(file, allow_pickle=True)['registered_contours'] for file in self.files]
-        nslices = len(opts_lists[0])
+        files = [os.path.join(self.datadir, name + '.npz') for name in self.names]
+        
+        opts_lists = [np.load(file, allow_pickle=True)['registered_contours'] for file in files]
+        nslice = len(opts_lists[0])
   
         pts_all = np.vstack([opt for opts_list in opts_lists for opts in opts_list if opts is not None for opt in opts])
         self.pts_mu = np.mean(pts_all, axis=0)
@@ -31,7 +35,7 @@ class io():
         
         ii = 0
         polylines = []
-        for i in range(nslices):
+        for i in range(nslice):
         
             polyline = []
             for l in range(self.nlabs):
@@ -57,6 +61,42 @@ class io():
         return polylines
     
     
+    def load2(self, axis, nslice, ext='obj', plot=False):
+        
+        poly = utils.read_vtkpoly(os.path.join(self.datadir, self.names[0] + '.' + ext))
+        bounds = np.reshape(poly.GetBounds(),(3,2))
+        mu = np.array(poly.GetCenter())
+
+        self.pts_amp = np.max(np.diff(np.delete(bounds, axis, axis=0))) / 2
+        self.pts_mu = np.delete(mu, axis)
+        pos_sli = np.linspace(bounds[axis,0], bounds[axis,1], nslice + 2)[1:-1]
+        self.spacing = np.ones(3)
+        self.spacing[axis] = pos_sli[1] - pos_sli[0]
+        self.permut = list(range(axis)) + [2] + list(range(axis, 2))
+        
+        polylines = []
+        for i in range(nslice):
+            
+           poly_sli = utils.slice_vtkpoly(poly, pos_sli[i], axis=axis)
+           pts = np.array(poly_sli.GetPoints().GetData())
+           pts = np.delete(pts, axis, axis=1)
+           pts = (pts - self.pts_mu) / self.pts_amp
+           nsimps = poly_sli.GetNumberOfLines()
+           simps = np.array(poly_sli.GetLines().GetData()).reshape((nsimps,-1))     
+           simps = np.array(simps, dtype=np.int32).reshape((nsimps,-1))[:,1:]
+           
+           opts = utils.contours2opts(pts, simps)  
+           polyline = utils.opts_to_contour(opts, npts=self.npts)
+           polylines.append(polyline)
+           
+           if plot:
+               utils.plot_contour(polyline)
+               plt.title(str(i))
+               plt.show()
+
+        return polylines
+    
+
     def save(self, meshes, outdir, suffix):
         
         if suffix != '': suffix = '_' + suffix
@@ -64,43 +104,19 @@ class io():
         for l in range(self.nlabs):
             
             pts, simps = meshes[l]
-            pts[:,:2] = (pts[:,:2] * self.pts_amp + self.pts_mu) * self.spacing[:2]
-            pts[:,2] = pts[:,2] * self.spacing[2]
             
+            pts[:,:2] = (pts[:,:2] * self.pts_amp + self.pts_mu)
+            pts = pts[:, self.permut]
+            pts = pts * self.spacing
+
             poly = utils.vtkpoly(pts, simps)
+            poly = utils.fix_normals_vtkpoly(poly)
             out_file = os.path.join(outdir, self.names[l] + suffix + '.obj')
             utils.write_vtkpoly(poly, out_file)
-      
-    
 
-     
-# class register_slices():
-    
-#     def __init__(self, transfo, 
-#                  startmid=
-#                  init='identity', niter=1, degree=2, icp_niter=30, bidir=True,
-#                  fit_fun=None, regul_fun=None, lr=1e-2, wreg=1e-1, sigma=1e-1, int_steps=16, plot=False):
-        
-#         self.method = method   
-#         self.niter = niter
-#         if transfo in ('rig', 'rigid', 'aff', 'affine'):
-#             self.transfo_type = 'linear'
-#             self.reg = register.reg_linear(niter=icp_niter, transfo=transfo, init=init, se=True, bidir=bidir, plot=plot)
-#         elif transfo in ('poly', 'polynomial'):
-#             self.transfo_type = 'polynomial'
-#             self.reg = register.reg_polynom(niter=icp_niter, degree=degree, init=init, se=True, bidir=bidir, plot=plot)
-#         elif transfo == 'deformable':
-#             self.transfo_type = 'deformable'
-#             self.reg = register.reg_deformable(niter=icp_niter, fit_fun=fit_fun, regul_fun=regul_fun, 
-#                                                lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps, plot=plot)
-            
-            
-            
-#     def compute(self, polylines):     
-            
-    
 
-            
+
+
 class register_slices():
     
     def __init__(self, method, transfo, init='identity', niter=1, degree=2, icp_niter=30, bidir=True,
@@ -215,7 +231,7 @@ class register_slices():
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                     
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -260,7 +276,7 @@ class register_slices():
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                     
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -291,7 +307,7 @@ class register_slices():
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                     
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -335,7 +351,7 @@ class register_slices():
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -368,7 +384,7 @@ class register_slices():
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.zeros_like(mov_pts), None, None)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.reg.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -431,6 +447,7 @@ class register_slices():
         
         for _ in range(self.niter):
             
+            t = time.time()
             for i in range(midslice+1, nslice-1):               
 
                 mov_polyline = polylines0[i]
@@ -458,15 +475,11 @@ class register_slices():
                 polylines[i] = moved_polyline
             
             polylines0 = copy.deepcopy(polylines)
+            print('done in: ', time.time()-t)
             
         return polylines
+   
     
-                # plt.subplot(3,3,1); utils.plot_contour(polylines0[i-1])
-                # plt.subplot(3,3,2); utils.plot_contour(polylines0[i])
-                # plt.subplot(3,3,3); utils.plot_contour(polylines0[i+1])
-                # plt.subplot(3,3,4); utils.plot_contour(polylines[i-1])
-                # plt.subplot(3,3,5); utils.plot_contour(polylines[i])
-                # plt.subplot(3,3,6); utils.plot_contour(polylines[i+1])
                 
 class bridge_contours():
     
@@ -479,7 +492,9 @@ class bridge_contours():
     def compute(self, polylines):       
         
         nslices = len(polylines)
-        labs = np.unique(np.concatenate([polyline[3] for polyline in polylines]))
+        is_lab = polylines[0][3] is not None
+        if not is_lab: labs = [1]
+        else: labs = np.unique(np.concatenate([polyline[3] for polyline in polylines]))
         z_coords = np.arange(nslices)
         
         if isinstance(self.thr_conn, (list, tuple, np.ndarray)):
@@ -489,8 +504,11 @@ class bridge_contours():
             
         meshes = []
         for l in range(len(labs)):
-
-            polylines_l = [utils.extract_polyline(polyline, polyline[3] == l + 1) for polyline in polylines]
+            
+            if is_lab:
+                polylines_l = [utils.extract_polyline(polyline, polyline[3] == l + 1) for polyline in polylines]
+            else:
+                polylines_l = polylines
             opts_list = []
             
             for i in range(nslices):
@@ -499,7 +517,7 @@ class bridge_contours():
                 opts = utils.contours2opts(np.array(polyline_l[0]), np.array(polyline_l[1]))
                 opts_list.append(opts)
                 
-            pts, simps = utils.bridge_contours_2(opts_list, z_coords, greedy=self.greedy, thr_conn=thr_conn[l], sealed=self.sealed)
+            pts, simps = utils.bridge_contours(opts_list, z_coords, greedy=self.greedy, thr_conn=thr_conn[l], sealed=self.sealed)
             meshes.append([pts, simps])
         
         return meshes

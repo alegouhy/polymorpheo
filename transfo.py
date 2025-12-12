@@ -1,5 +1,9 @@
 import jax.numpy as jnp
+import numpy as np
 from itertools import product
+from scipy.linalg import logm
+from scipy.linalg import expm
+from scipy.stats.qmc import Sobol
 
 import utils
 
@@ -15,41 +19,50 @@ class kernel_disp():
         self.int_step_max = int_steps if int_step_max is None else int_step_max
         self.eps = eps
         
-    def compute(self, pts, cpts, theta):
-        # pts:   (npts, ndims),   points where we want to evaluate the disp.
-        # cpts:  (ncpts, ndims),  points where theta is known.              
-        # theta: (ncpts, ndims),  transfo params.
+    def compute(self, pts, cpts, theta_lin=None, theta_trans=None):
+        # pts:   (npts, ndims),              points where we want to evaluate the disp.
+        # cpts:  (ncpts, ndims),             points where theta is known.              
+        # theta_trans: (ncpts, ndims),       transfo params (translation part).
+        # theta_lin (ncpts, ndims, ndims),   transfo params (linear part).
         
         if self.sigma == 'silverman':
             self.sigma = self.sigma_silverman(cpts)        
         
-        disp = self.interp(pts, cpts, theta)
+        disp = self.interp(pts, cpts, theta_lin, theta_trans)
 
         if self.int_steps > 0:
-            disp = self.lie_exp(disp, pts, cpts, theta)
+            disp = self.lie_exp(disp, pts, cpts, theta_lin, theta_trans)
 
         return disp
 
     
-    def lie_exp(self, disp, pts, cpts, theta):
+    def lie_exp(self, disp, pts, cpts, theta_lin, theta_trans):
         
         disp = disp / self.int_steps
         for i in range(self.int_step_max):
-            disp += self.interp(pts + disp, cpts, theta) / self.int_steps
+            disp += self.interp(pts + disp, cpts, theta_lin, theta_trans) / self.int_steps
 
         return disp
 
     
-    def interp(self, pts, cpts, theta):
+    def interp(self, pts, cpts, theta_lin, theta_trans):
             
-        sqdist = utils.pts_dist(pts, cpts)                                  # (npts, ncpts)
+        sqdist = utils.pts_dist(pts, cpts)                                     # (npts, ncpts)
         weight = jnp.exp(-sqdist / (2*self.sigma**2))                            
         weight = weight / (jnp.sum(weight, axis=1)[...,None] + self.eps)
 
-        disp = weight @ theta                                               # (npts, ndims)
-            
-        return disp
+        if theta_trans is not None and theta_lin is None:
+            disp =  weight @ theta_trans
 
+        else:
+            disp = jnp.zeros_like(pts)  
+            if theta_lin is not None:
+                disp += jnp.einsum('ij,jkl,il->ik', weight, theta_lin, pts)   
+            if theta_trans is not None:
+                disp += weight @ theta_trans
+        
+        return disp
+    
         
     def sigma_silverman(self, pts):
         
@@ -58,6 +71,7 @@ class kernel_disp():
         sigma = 0.9 * jnp.min(jnp.stack((std, iqr / 1.349))) * pts.shape[0] ** (-1/5)
         
         return sigma
+    
 
 
 class init_transfo():
@@ -219,3 +233,61 @@ class opti_polynom_transfo():
         return X @ coeffs + self.ref_pts_mu
         
     
+    
+def random_locAff(ndims, ncpts=300, seed=None, liealg=True,
+                  so_corner=[0], ne_corner=[1], bound_scal=1.1,
+                  trans_bounds=0.01, rot_bounds=np.pi/2, scalDir_bounds=np.pi/4, scal_bounds=3):
+              
+    if len(so_corner) == 1: so_corner *= ndims 
+    if len(ne_corner) == 1: ne_corner *= ndims 
+    so_corner = np.array(so_corner)
+    ne_corner = np.array(ne_corner)
+    
+    center = (ne_corner + so_corner) / 2 
+    ne_corner = np.expand_dims(bound_scal * (ne_corner - center) + center, axis=-1)
+    so_corner = np.expand_dims(bound_scal * (so_corner - center) + center, axis=-1)
+    
+    r = Sobol(ndims, seed=seed).random(ncpts)
+    cpts = np.expand_dims(r*ne_corner.T + (1-r)*so_corner.T, axis=-1)
+    
+    if ndims == 2:
+        rot_angles = 2*rot_bounds*(np.random.rand(ncpts)-0.5)
+        rot = np.stack([np.stack([ np.zeros(ncpts), rot_angles ], axis=1),
+                        np.stack([-rot_angles , np.zeros(ncpts)], axis=1)], axis=2)   
+    
+        scalDir_angles = 2*scalDir_bounds*(np.random.rand(ncpts)-0.5)
+        scalDir = np.stack([np.stack([ np.zeros(ncpts)   , scalDir_angles], axis=1),
+                            np.stack([-scalDir_angles, np.zeros(ncpts)   ], axis=1)], axis=2)   
+        
+    elif ndims == 3:
+        rot_angles = 2*rot_bounds*(np.random.rand(ncpts,3)-0.5) 
+        rot = np.stack([np.stack([ np.zeros(ncpts),  rot_angles[...,2], -rot_angles[...,1]], axis=1),
+                        np.stack([-rot_angles[...,2],  np.zeros(ncpts),  rot_angles[...,0]], axis=1),
+                        np.stack([ rot_angles[...,1], -rot_angles[...,0],  np.zeros(ncpts)], axis=1)], axis=2)
+    
+        scalDir_angles = 2*scalDir_bounds*(np.random.rand(ncpts,3)-0.5) 
+        scalDir = np.stack([np.stack([ np.zeros(ncpts)    ,  scalDir_angles[...,2], -scalDir_angles[...,1]], axis=1),
+                            np.stack([-scalDir_angles[...,2],  np.zeros(ncpts)    ,  scalDir_angles[...,0]], axis=1),
+                            np.stack([ scalDir_angles[...,1], -scalDir_angles[...,0],  np.zeros(ncpts)    ], axis=1)], axis=2)
+    
+    rot = expm(rot)
+    scalDir = expm(scalDir)
+    
+    scal_factors = np.exp(2*np.log(scal_bounds)*(np.random.rand(ncpts, ndims, 1)-0.5))
+    scal = np.eye(ndims) * scal_factors
+    
+    mats = np.matmul(rot,np.matmul(scalDir,np.matmul(scal,np.transpose(scalDir, [0,2,1]))))
+    trans = 2*trans_bounds*(np.random.rand(ncpts,ndims,1)-0.5)
+    trans = np.matmul(mats, -cpts) + trans + cpts
+    
+    if not liealg:
+        return cpts[..., 0], mats, trans[...,0]
+    
+    affs = np.concatenate((mats, trans), axis=2)
+    affs = np.concatenate((affs, np.concatenate((np.zeros((ncpts,1,ndims)), np.ones((ncpts,1,1))), axis=2)), axis=1)
+    
+    log_affs = np.stack([logm(affs[i,...]) for i in range(ncpts)], axis=0)
+    log_mats = log_affs[:, :ndims, :ndims]
+    log_trans = log_affs[:, :ndims, ndims]
+    
+    return cpts[..., 0], log_mats.real, log_trans.real

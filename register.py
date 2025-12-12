@@ -142,6 +142,51 @@ class reg_polynom():
  
 #%%
 
+# class reg_deformable:
+    
+#     def __init__(self, niter, fit_fun, regul_fun, 
+#                  lr=1e-2, wreg=0, sigma=None, int_steps=64, plot=False):
+        
+#         self.niter = niter
+#         self.lr = lr
+#         self.wreg = wreg
+#         self.sigma = sigma
+#         self.int_steps = int_steps
+#         self.plot = plot
+
+#         self.kernel_fun = transfo_ops.kernel_disp(sigma=sigma, int_steps=int_steps)
+#         self.fit_fun = fit_fun
+#         self.regul_fun = regul_fun
+
+#     def compute(self, ref_contour, mov_contour):
+        
+#         ref_contour_list, mov_contour = load_contours(ref_contour, mov_contour)
+#         mov_pts, mov_simps, _, mov_labs = mov_contour
+
+#         theta = jnp.zeros_like(mov_pts)
+#         optimizer = optax.adam(learning_rate=self.lr)
+#         opt_state = optimizer.init(theta)
+
+#         losses = []
+#         for k in range(self.niter):
+            
+#             loss, grads = jax.value_and_grad(transfo_ops.energy_total_fn)(theta, 
+#                                                                           mov_contour, ref_contour_list, 
+#                                                                           self.fit_fun, self.regul_fun, self.wreg, self.kernel_fun)
+
+#             updates, opt_state = optimizer.update(grads, opt_state, theta)
+#             theta = optax.apply_updates(theta, updates)
+#             losses.append(loss)
+
+#         disp = self.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
+#         moved_pts = mov_pts + disp
+#         moved_contour = moved_pts, mov_simps, None, mov_labs
+        
+#         return theta, moved_contour, losses
+    
+
+
+
 class reg_deformable():
     
     def __init__(self, niter, fit_fun, regul_fun, lr=1e-2, wreg=0, sigma=None, int_steps=64, plot=False):
@@ -162,8 +207,6 @@ class reg_deformable():
     def compute(self, ref_contour, mov_contour):
         
         ref_contour_list, mov_contour = load_contours(ref_contour, mov_contour)
-        ref_pts_list  = [contour[0] for contour in ref_contour_list]
-        ref_labs_list = [contour[3] for contour in ref_contour_list]
         mov_pts, mov_simps, _, mov_labs = mov_contour
         
         theta0 = jnp.zeros_like(mov_pts)
@@ -186,7 +229,7 @@ class reg_deformable():
             
             if self.plot:
                 if k % self.plot == 0:
-                    disp = self.kernel_fun.compute(mov_pts, mov_pts, theta)
+                    disp = self.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
                     moved_contour = moved_pts, mov_simps, None, mov_labs
                     for ref_contour in ref_contour_list:
@@ -197,63 +240,9 @@ class reg_deformable():
             
             losses.append(loss)
         
-        disp = self.kernel_fun.compute(mov_pts, mov_pts, theta)
+        disp = self.kernel_fun.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
         moved_pts = mov_pts + disp
         moved_contour = moved_pts, mov_simps, None, mov_labs
     
         return theta, moved_contour, losses
-    
-# #%%
-
-# class reg_deformable():
-    
-#     def __init__(self, niter, fit_fun, regul_fun, lr=1e-2, wreg=0, sigma=None, int_steps=64, eps=1e-9, plot=False):
-        
-#         self.niter = niter
-#         self.lr = lr
-#         self.wreg = wreg
-#         self.sigma = sigma
-#         self.int_steps = int_steps
-#         self.eps = eps
-#         self.plot = plot
-        
-#         kernel_fun = transfo.kernel_disp(sigma=sigma, int_steps=int_steps)
-        
-#         self.energy_fun = energy.energy_total(fit_fun=fit_fun, regul_fun=regul_fun, 
-#                                               wreg=wreg, kernel_fun=kernel_fun).compute
-        
-#     def compute(self, ref_contour, mov_contour, disp0=None):
-        
-#         mov_pts, mov_simps, mov_normals = mov_contour
-        
-#         if disp0 is None: 
-#             disp = jnp.zeros_like(mov_pts)
-#         else:  
-#             disp = disp0
-            
-#         optimizer = optax.adam(learning_rate=self.lr)
-#         opt_state = optimizer.init(disp)
-        
-#         losses = []
-#         for k in range(self.niter):
-
-#             loss, grads = jax.value_and_grad(self.energy_fun)(disp, mov_contour, ref_contour)
-            
-#             updates, opt_state = optimizer.update(grads, opt_state)
-#             disp = optax.apply_updates(disp, updates)
-            
-#             if self.plot:
-#                 if k % self.plot == 0:
-#                     moved_pts = mov_pts + disp
-#                     moved_contour = moved_pts, mov_simps, mov_normals
-#                     utils.plot_contour(ref_contour, col=[1,0,0])
-#                     utils.plot_contour(moved_contour, col=[0,0,1])
-#                     plt.title(f"it: {k}, energy = {loss:.6f}", fontsize=7) 
-#                     plt.show()
-            
-#             losses.append(loss)
-        
-#         moved_pts = mov_pts + disp
-#         moved_contour = moved_pts, mov_simps, mov_normals
-    
-#         return disp, moved_contour, losses
+ 

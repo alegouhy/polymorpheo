@@ -17,6 +17,19 @@ from shapely import make_valid
 import triangle
 from tqdm import tqdm
 
+cols = np.array([[0.902, 0.098, 0.294],
+                 [0.000, 0.510, 0.784],
+                 [0.235, 0.706, 0.294],
+                 [1.000, 0.682, 0.098],
+                 [0.961, 0.510, 0.188],
+                 [0.569, 0.118, 0.706],
+                 [0.275, 0.941, 0.941],
+                 [0.941, 0.196, 0.902],
+                 [0.667, 0.431, 0.157],
+                 [0.980, 0.745, 0.831]])
+
+def get_cols():
+    return cols
 
 def develop(x, dec='|_'):
     
@@ -74,6 +87,7 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
         
         ipt += n_pts
     
+    print(len(pts))
     pts = np.array(np.concatenate(pts, axis=0))
     if get_simps: 
         simps = np.array(np.concatenate(simps, axis=0) )
@@ -646,51 +660,6 @@ def resample_contour(pts, n):
     return np.stack(pts_res, axis=-1)
 
 
-
-def bridge_contours(pts_list, z_coords, npts=None):
-    """
-    assumes 3D pts are ordered
-    
-    """
-    
-    simps = []
-    pts = []
-    if npts is None:
-        npts = pts_list[0].shape[0]
-        do_res = False
-    else: 
-        do_res= True
-     
-    for k in range(len(pts_list)-1):
-        offset = 2 * npts * k
-        
-        pts1 = pts_list[k]
-        pts2 = pts_list[k+1]
-        z1 = z_coords[k]
-        z2 = z_coords[k+1]
-        
-        if do_res:
-            pts1 = resample_contour(pts1, npts)
-            pts2 = resample_contour(pts2, npts)
-        pts2 = phase_align_contours(pts1, pts2)
-        
-        pts1 = np.c_[pts1, np.full(npts, z1)]
-        pts2 = np.c_[pts2, np.full(npts, z2)]
-        
-        pts.append(np.vstack([pts1, pts2]))
-
-        for i in range(npts):
-            i1, i2 = i, (i + 1) % npts
-            j1, j2 = npts + i, npts + ((i + 1) % npts)
-            simps.append(np.array([i1, j1, j2], dtype=int) + offset)
-            simps.append(np.array([i1, j2, i2], dtype=int) + offset)
-
-    pts = np.concatenate(pts, axis=0)
-    simps = np.vstack(simps).astype(int)
-    
-    return pts, simps
-
-
 def representative_point(opts):
     
     opts_c = close_contour(opts)
@@ -744,7 +713,7 @@ def conn_events(nodes_curr, nodes_next, links):
 
 
 
-def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=True):
+def bridge_contours(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=True, debug=False):
     
     pts = []
     simps = []
@@ -755,7 +724,7 @@ def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=Tr
         path_fun = triangle_path_dp
     
     nodes_list, links_list = build_graph_conn(opts_list, thr_conn)
-    plot_graph_conn(nodes_list, links_list)
+    if debug: plot_graph_conn(nodes_list, links_list)
     
     if sealed:
         lid_start = [representative_point(opts) for opts in opts_list[0]]
@@ -765,8 +734,7 @@ def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=Tr
         nodes_list = [nodes_list[0]] + nodes_list + [nodes_list[-1]]
         links_list = [[[node, node] for node in nodes_list[0]]] + links_list + [[[node, node] for node in nodes_list[-1]]]
     
-    # for i in tqdm(range(len(opts_list)-1), desc='bridging contours'):
-    for i in range(len(opts_list)-1):
+    for i in tqdm(range(len(opts_list)-1), desc='bridging contours'):
         
         opts_1 = cw(opts_list[i])
         opts_2 = cw(opts_list[i+1])  
@@ -775,7 +743,7 @@ def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=Tr
         nodes_2 = nodes_list[i+1]
         
         events = conn_events(nodes_1, nodes_2, links)
-        print(i, len(opts_1), len(opts_2), events)
+        if debug: print('slice: ' + str(i), ', nb contours: ' + str(len(opts_1)) + ' ' + str(len(opts_2)), ', events:', events)
         opts_1_proc = []
         opts_2_proc = []
         
@@ -809,55 +777,53 @@ def bridge_contours_2(opts_list, z_coords, thr_conn=1/3, greedy=False, sealed=Tr
             
         n = len(opts_1_proc)
         
-        cols = [[1,0,0],[0,0,1], [0,1,0]]
-        plt.subplot(2,2,1)
-        if len(opts_1) > 0: plot_opts(opts_1[0], col=cols[0], markersize=1)
-        if len(opts_1) > 1: plot_opts(opts_1[1], col=cols[1], markersize=1)
-        if len(opts_1) > 2: plot_opts(opts_1[2], col=cols[2], markersize=1)  
-        plt.subplot(2,2,2)
-        if len(opts_2) > 0: plot_opts(opts_2[0], col=cols[0], markersize=1)
-        if len(opts_2) > 1: plot_opts(opts_2[1], col=cols[1], markersize=1)
-        if len(opts_2) > 2: plot_opts(opts_2[2], col=cols[2], markersize=1)
-        # plt.subplot(2,2,3)
-        # plot_opts(opts_1_proc[0], col=[1,0,0], markersize=1)
-        # if len(opts_1_proc) > 1: plot_opts(opts_1_proc[1], col=cols[1], markersize=1)
-        # if len(opts_1_proc) > 2: plot_opts(opts_1_proc[2], col=cols[2], markersize=1)
-        # plt.subplot(2,2,4)
-        # plot_opts(opts_2_proc[0], col=[1,0,0], markersize=1)
-        # if len(opts_2_proc) > 1: plot_opts(opts_2_proc[1], col=cols[1], markersize=1)
-        # if len(opts_2_proc) > 2: plot_opts(opts_2_proc[2], col=cols[2], markersize=1)
+        if debug:
+            plt.subplot(2,2,1)
+            for o, opt in enumerate(opts_1):
+                plot_opts(opt, col=cols[o], markersize=1)
+            plt.subplot(2,2,2)
+            for o, opt in enumerate(opts_2):
+                plot_opts(opt, col=cols[o], markersize=1)
 
         for k in range(n):
             
             opts_1k = open_contour(opts_1_proc[k])
             opts_2k = open_contour(opts_2_proc[k])
+            nn1 = opts_1k.shape[0]
+            nn2 = opts_2k.shape[0]
 
-            opts_1k, opts_2k = phase_align_contours(opts_1k, opts_2k)
+            opts_1k, opts_2k, shift_1, shift_2 = phase_align_contours(opts_1k, opts_2k)
             
             opts_1k = np.hstack([opts_1k, np.full((opts_1k.shape[0],1), z_coords[i])])
             opts_2k = np.hstack([opts_2k, np.full((opts_2k.shape[0],1), z_coords[i+1])])
-            pts_k = np.vstack([opts_1k, opts_2k])
              
-            plt.subplot(2,2,3)
-            plot_opts(opts_1k, col=cols[k], markersize=1)
-            plt.subplot(2,2,4)
-            plot_opts(opts_2k, col=cols[k], markersize=1)
+            if debug:
+                plt.subplot(2,2,3)
+                plot_opts(opts_1k, col=cols[k], markersize=1)
+                plt.subplot(2,2,4)
+                plot_opts(opts_2k, col=cols[k], markersize=1)
 
             path, path_len = path_fun(opts_1k, opts_2k)
             _, simps_k = triangulate_path(path, opts_1k, opts_2k)
             
-            # plt.subplot(2, n, n+k+1)
-            # plot_path(path, opts_1k.shape[0], opts_2k.shape[0])
-            # plt.show()
+            pts_k = np.vstack([np.roll(opts_1k, -shift_1, axis=0), 
+                               np.roll(opts_2k, -shift_2, axis=0)])           
+            mask_1 = simps_k < nn1
+            mask_2 = simps_k >= nn1
+            simps_k = simps_k.at[mask_1].set((simps_k[mask_1] - shift_1) % nn1)
+            simps_k = simps_k.at[mask_2].set(nn1 + ((simps_k[mask_2] - nn1 - shift_2) % nn2))
+            simps_k = simps_k + offset      
             
-            simps_k = simps_k + offset
+            # pts_k = np.vstack([opts_1k, opts_2k])  
+            # simps_k = simps_k + offset 
             
             pts.append(pts_k)
             simps.append(simps_k)
             offset += pts_k.shape[0]
-            
-        plt.suptitle(i)
-        plt.show()
+        
+        if debug:
+            plt.suptitle('slice: ' + str(i))
+            plt.show()
                  
     pts = np.vstack(pts)
     simps = np.vstack(simps)
@@ -907,14 +873,13 @@ def rm_single_pts(pts, simps):
     return pts_clean, simps_clean
 
     
-    
 def clean_mesh(pts, simps):
     
     pts_clean, simps_clean = rm_dup_pts(pts, simps)
     simps_clean = rm_dup_simps(simps_clean)
     simps_clean = rm_degen_simps(simps_clean)
     pts_clean, simps_clean = rm_single_pts(pts_clean, simps_clean)
-    
+
     return pts_clean, simps_clean
 
     
@@ -966,7 +931,7 @@ def phase_align_contours(opts1, opts2, alpha=0.5, sigma=2):
     opts2 = np.asarray(opts2)
     n1, n2 = len(opts1), len(opts2)
     
-    if n1 < 2: return opts1, opts2
+    if n1 < 2: return opts1, opts2, 0, 0
     
     diff1 = np.roll(opts1, -1, axis=0) - opts1
     ang1 = np.arctan2(diff1[:, 1], diff1[:, 0])
@@ -979,7 +944,7 @@ def phase_align_contours(opts1, opts2, alpha=0.5, sigma=2):
     seq1 = np.concatenate([[0], np.cumsum(np.linalg.norm(diff1, axis=1))])
     seq1 /= seq1[-1]
     
-    if n2 < 2: return opts1_shift, opts2
+    if n2 < 2: return opts1_shift, opts2, -shift1, 0
     elif n2 == 2: alpha = 0.
     
     diff2 = np.roll(opts2, -1, axis=0) - opts2
@@ -1008,7 +973,7 @@ def phase_align_contours(opts1, opts2, alpha=0.5, sigma=2):
             
     opts2_shift = np.roll(opts2, shift_hat, axis=0)
     
-    return opts1_shift, opts2_shift
+    return opts1_shift, opts2_shift, -shift1, shift_hat
 
 
 
@@ -1293,6 +1258,57 @@ def smooth_vtkpoly(poly, niter=300):
     return smoother.GetOutput()
 
 
+def slice_vtkpoly(poly, pos, axis=None):
+    
+    normal = np.zeros(3)
+    normal[axis] = 1
+    
+    origin = np.zeros(3)
+    origin[axis] = pos
+    
+    plane = vtk.vtkPlane()
+    plane.SetOrigin(*origin)
+    plane.SetNormal(*normal)
+    
+    cutter = vtk.vtkCutter()
+    cutter.SetCutFunction(plane)
+    cutter.SetInputData(poly)
+    cutter.Update()  
+    
+    return cutter.GetOutput()
+ 
+
+def split_vtkpoly(poly, pos, axis):
+
+    normal = np.zeros(3)
+    normal[axis] = 1
+    
+    origin = np.zeros(3)
+    origin[axis] = pos
+    
+    plane = vtk.vtkPlane()
+    plane.SetOrigin(*origin)
+    plane.SetNormal(*normal)
+    
+    clipper = vtk.vtkClipPolyData()
+    clipper.SetInputData(poly)
+    clipper.SetClipFunction(plane)
+    clipper.InsideOutOff()
+    clipper.GenerateClippedOutputOn()
+    clipper.Update()
+    poly_1 = clipper.GetOutput()
+    
+    clipper = vtk.vtkClipPolyData()
+    clipper.SetInputData(poly)
+    clipper.SetClipFunction(plane)
+    clipper.InsideOutOn()
+    clipper.GenerateClippedOutputOn()
+    clipper.Update()
+    poly_2 = clipper.GetOutput()
+    
+    return poly_1, poly_2
+
+
 def vtkpoly(pts, simps):
     
     ndims = pts.shape[1]
@@ -1318,6 +1334,8 @@ def write_vtkpoly(poly, filename):
     if ext == '.vtp':
         writer = vtk.vtkXMLPolyDataWriter()
         writer.SetCompressorTypeToZLib()
+    if ext == '.ply':
+        writer = vtk.vtkPLYWriter()
     elif ext == '.obj':
         writer = vtk.vtkOBJWriter()
         
@@ -1345,6 +1363,17 @@ def read_vtkpoly(filename):
     return poly
 
 
+def fix_normals_vtkpoly(poly):
+    
+    normals = vtk.vtkPolyDataNormals()
+    normals.SetInputData(poly)
+    normals.ConsistencyOn()
+    normals.AutoOrientNormalsOn()
+    normals.Update()
+    
+    return normals.GetOutput()
+    
+    
 def render_vtkpoly(polydatas, wireframe=False):
     
     n = len(polydatas)
@@ -1469,7 +1498,7 @@ def build_graph_conn(opts_list, thr):
                     inter = poly_curr.intersection(poly_next)
                     overlap_1 = inter.area / poly_curr.area
                     overlap_2 = inter.area / poly_next.area
-                    linked =  np.max((overlap_1, overlap_2)) > thr
+                    linked =  np.max((overlap_1, overlap_2)) >= thr
                     
                 elif opt_curr.shape[0] > 2 and opt_next.shape[0] < 3:
                     linked = any([pt.within(poly_curr) for pt in poly_next])
@@ -1518,7 +1547,37 @@ def plot_graph_conn(nodes_list, links_list, col=[0,0,1]):
     plt.show()
 
 
-
+def vtkpoly2mesh(poly, ax2d=None):
+    
+    ndims = 3
+    
+    pts = np.array(poly.GetPoints().GetData())
+    if ax2d is not None:
+        pts = np.delete(pts, ax2d, 1) 
+        ndims -= 1
+        
+    if ndims == 2: 
+        ncells = poly.GetNumberOfLines()
+        simps = np.array(poly.GetLines().GetData()).reshape((ncells,-1)) 
+    else: 
+        ncells = poly.GetNumberOfPolys()
+        simps = np.array(poly.GetPolys().GetData()).reshape((ncells,-1))     
+    simps = np.array(simps, dtype=np.int32).reshape((ncells,-1))[:,1:]
+    
+    pts_col_vtk = poly.GetPointData().GetScalars()
+    if pts_col_vtk is not None:
+        pts_col = vtk_to_numpy(pts_col_vtk)
+      
+    # pts_col_vtk = poly.GetPointData().GetArray("color")
+    # if pts_col_vtk is not None:
+    #     pts_col = [pts_col_vtk.GetTuple(i) for i in range(pts.shape[0])]
+    #     pts_col = np.array(pts_col, dtype=np.int64)
+        
+        return pts, simps, pts_col
+    else:
+        return pts, simps
+    
+    
 def nearest_neighbors(ref_pts_list, mov_pts, ref_labs_list=None, mov_labs=None, bidir=False):
     
     use_labs = ref_labs_list is not None and mov_labs is not None        
@@ -1563,3 +1622,19 @@ def nearest_neighbors(ref_pts_list, mov_pts, ref_labs_list=None, mov_labs=None, 
         
     return ref_nn_pts, mov_nn_pts
 
+
+def boxplot(y, x, col=[0,0,1], w=0.5, lw=2, ax=plt):
+    # whis = None
+    whis = (0, 100)
+    bp = plt.boxplot(y, positions=[x], widths=[w], whis=whis, showfliers=False, patch_artist=True)
+    for a in bp.keys():
+        plt.setp(bp[a], color=col)
+    for a in bp['boxes']:
+        a.set_facecolor((*col, 0.5))
+    for b in ['whiskers', 'caps', 'boxes', 'medians']:
+        for a in bp[b]:
+            a.set_linewidth(lw)
+        # a.set(facecolor=col, alpha=0.1, linewidth=3, edgecolor='blue')
+    plt.plot(x, np.mean(y), '*', color=col)
+    return bp
+    
