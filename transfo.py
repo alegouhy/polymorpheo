@@ -12,38 +12,55 @@ class kernel_disp():
     """
     should investigate: https://github.com/dodgebc/jaxkd
     """
-    def __init__(self, sigma='silverman', int_steps=64, int_step_max=None, eps=1e-14):
+    def __init__(self, sigma, int_steps=64, int_step_max=None, eps=1e-14, rk=1):
 
         self.sigma = sigma
         self.int_steps = int_steps
         self.int_step_max = int_steps if int_step_max is None else int_step_max
         self.eps = eps
+        self.rk = rk
         
     def compute(self, pts, cpts, theta_lin=None, theta_trans=None):
-        # pts:   (npts, ndims),              points where we want to evaluate the disp.
-        # cpts:  (ncpts, ndims),             points where theta is known.              
-        # theta_trans: (ncpts, ndims),       transfo params (translation part).
-        # theta_lin (ncpts, ndims, ndims),   transfo params (linear part).
+        # pts (npts, ndims):                points where we want to evaluate the disp.
+        # cpts (ncpts, ndims):              points where theta is known.              
+        # theta_trans (ncpts, ndims):       transfo params (translation part).
+        # theta_lin (ncpts, ndims, ndims):  transfo params (linear part).
         
-        if self.sigma == 'silverman':
-            self.sigma = self.sigma_silverman(cpts)        
-        
-        disp = self.interp(pts, cpts, theta_lin, theta_trans)
-
-        if self.int_steps > 0:
-            disp = self.lie_exp(disp, pts, cpts, theta_lin, theta_trans)
+        if self.int_steps == 0:
+            disp = self.interp(pts, cpts, theta_lin, theta_trans)
+        else:
+            disp = self.lie_exp(pts, cpts, theta_lin, theta_trans)
 
         return disp
 
     
-    def lie_exp(self, disp, pts, cpts, theta_lin, theta_trans):
+    def lie_exp(self, pts, cpts, theta_lin, theta_trans):
+            
+        dt = 1.0 / self.int_steps
+        d = jnp.zeros_like(pts)
         
-        disp = disp / self.int_steps
-        for i in range(self.int_step_max):
-            disp += self.interp(pts + disp, cpts, theta_lin, theta_trans) / self.int_steps
+        for _ in range(self.int_step_max):
+            
+            if self.rk == 1:
+                v = self.interp(pts + d, cpts, theta_lin, theta_trans)
+                d = d + dt * v
+    
+            elif self.rk == 2:
+                x = pts + d
+                k1 = self.interp(x, cpts, theta_lin, theta_trans)
+                k2 = self.interp(x + dt * k1, cpts, theta_lin, theta_trans)
+                d = d + dt * (k1 + k2) / 2.0
+            
+            elif self.rk == 4:
+                x = pts + d
+                k1 = self.interp(x, cpts, theta_lin, theta_trans)
+                k2 = self.interp(x + 0.5 * dt * k1, cpts, theta_lin, theta_trans)
+                k3 = self.interp(x + 0.5 * dt * k2, cpts, theta_lin, theta_trans)
+                k4 = self.interp(x + dt * k3, cpts, theta_lin, theta_trans)
+                d = d + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
 
-        return disp
-
+        return d
+    
     
     def interp(self, pts, cpts, theta_lin, theta_trans):
             
@@ -125,39 +142,47 @@ class opti_linear_transfo():
         
 
     def fit(self, ref_pts, mov_pts,
-                  ref_pts_mu=None, mov_pts_mu=None):
+                  ref_pts_mu=None, mov_pts_mu=None,
+                  weights=None, eps=1e-9):
         """
         Assumes that ref_pts and mov_pts are paired sets of points.
         """
 
         ndims = ref_pts.shape[1]
         
+        if weights is None:
+            weights = jnp.ones(len(ref_pts))
+        weights = weights / (jnp.sum(weights) + eps)
+
         if ref_pts_mu is None:
-            ref_pts_mu = jnp.mean(ref_pts, axis=0)
+            ref_pts_mu = jnp.sum(ref_pts * weights[:, None], axis=0)
         if mov_pts_mu is None:
-            mov_pts_mu = jnp.mean(mov_pts, axis=0)
+            mov_pts_mu = jnp.sum(mov_pts * weights[:, None], axis=0)
+        
         self.ref_pts_mu = ref_pts_mu
         self.mov_pts_mu = mov_pts_mu
-        ref_pts_bar = ref_pts - ref_pts_mu
-        mov_pts_bar = mov_pts - mov_pts_mu
+        
+        sqrt_weights = jnp.sqrt(weights[:, None])
+        ref_pts_wbar = (ref_pts - ref_pts_mu) * sqrt_weights
+        mov_pts_wbar = (mov_pts - mov_pts_mu) * sqrt_weights
             
         # nu = jnp.unique(ref_pts_bar, axis=0).shape[0]
         # if nu <= ndims + 2:   # Tikhonov regularization
         #     mov_pts_bar = jnp.vstack([mov_pts_bar, self.gamma * jnp.eye(ndims)])
         #     ref_pts_bar = jnp.vstack([ref_pts_bar, jnp.zeros((ndims, ndims))])
         
-        if self.transfo in ('rigid', 'similarity'):   
-            cov = ref_pts_bar.T @ mov_pts_bar
+        if self.transfo in ('rigid', 'similarity'):
+            cov = ref_pts_wbar.T @ mov_pts_wbar      
             U, _, Vt = jnp.linalg.svd(cov, full_matrices=False)
             S = jnp.eye(ndims)
             
-        if self.transfo == 'similarity':
-            mov_norm_sq = jnp.sum(mov_pts_bar ** 2)
-            s = jnp.trace(cov @ Vt.T @ U.T) / mov_norm_sq
-            S = s * S
+            if self.transfo == 'similarity':
+                mov_norm_sq = jnp.sum(mov_pts_wbar ** 2)
+                s = jnp.trace(cov @ Vt.T @ U.T) / (mov_norm_sq + eps)
+                S = s * S
  
         elif self.transfo == 'affine':
-            A, _, _, _ = jnp.linalg.lstsq(mov_pts_bar, ref_pts_bar, rcond=None)
+            A, _, _, _ = jnp.linalg.lstsq(mov_pts_wbar, ref_pts_wbar, rcond=None)
             U, S, Vt = jnp.linalg.svd(A.T, full_matrices=False)                      
             S = jnp.diag(S)
 
@@ -291,3 +316,6 @@ def random_locAff(ndims, ncpts=300, seed=None, liealg=True,
     log_trans = log_affs[:, :ndims, ndims]
     
     return cpts[..., 0], log_mats.real, log_trans.real
+
+                
+    

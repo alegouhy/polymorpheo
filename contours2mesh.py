@@ -12,15 +12,16 @@ import register
 
 class io():
     
-    def __init__(self, datadir, names, spacing=None, npts=None, npts_min=1):
+    def __init__(self, datadir, names, spacing=np.ones(3), npts=None, npts_min=1, normalise=False):
         
         self.npts = npts
         self.npts_min = npts_min
         self.nlabs = len(names)
         self.datadir = datadir
         self.names = names
-        self.spacing = spacing if spacing is None else np.ones(3)
+        self.spacing = np.array(spacing)
         self.permut = [0, 1, 2]
+        self.normalise = normalise
         
     def load(self, plot=False):
         
@@ -30,9 +31,13 @@ class io():
         nslice = len(opts_lists[0])
   
         pts_all = np.vstack([opt for opts_list in opts_lists for opts in opts_list if opts is not None for opt in opts])
-        self.pts_mu = np.mean(pts_all, axis=0)
-        self.pts_amp = np.max(np.abs(pts_all - self.pts_mu))
-        
+        if self.normalise:
+            self.pts_mu = np.mean(pts_all, axis=0)
+            self.pts_amp = np.max(np.abs(pts_all - self.pts_mu))
+        else:
+            self.pts_mu = np.zeros(pts_all.shape[1])
+            self.pts_amp = 1
+            
         ii = 0
         polylines = []
         for i in range(nslice):
@@ -47,8 +52,10 @@ class io():
             if len(polyline) == 0: continue
         
             pts, simps, _, labs = utils.concat_contours(polyline)
+            pts = pts * self.spacing[:2]
             
-            pts = (pts - self.pts_mu) / self.pts_amp
+            if self.normalise:
+                pts = (pts - self.pts_mu) / self.pts_amp
             
             polyline = pts, simps, None, labs
             polylines.append(polyline)
@@ -80,7 +87,8 @@ class io():
            poly_sli = utils.slice_vtkpoly(poly, pos_sli[i], axis=axis)
            pts = np.array(poly_sli.GetPoints().GetData())
            pts = np.delete(pts, axis, axis=1)
-           pts = (pts - self.pts_mu) / self.pts_amp
+           if self.normalise:
+               pts = (pts - self.pts_mu) / self.pts_amp
            nsimps = poly_sli.GetNumberOfLines()
            simps = np.array(poly_sli.GetLines().GetData()).reshape((nsimps,-1))     
            simps = np.array(simps, dtype=np.int32).reshape((nsimps,-1))[:,1:]
@@ -105,7 +113,8 @@ class io():
             
             pts, simps = meshes[l]
             
-            pts[:,:2] = (pts[:,:2] * self.pts_amp + self.pts_mu)
+            if self.normalise:
+                pts[:,:2] = pts[:,:2] * self.pts_amp + self.pts_mu
             pts = pts[:, self.permut]
             pts = pts * self.spacing
 
@@ -133,7 +142,7 @@ class register_slices():
         elif transfo == 'deformable':
             self.transfo_type = 'deformable'
             self.reg = register.reg_deformable(niter=icp_niter, fit_fun=fit_fun, regul_fun=regul_fun, 
-                                               lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps, plot=plot)
+                                               lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps) #, plot=plot)
             
             
     def compute(self, polylines):
@@ -167,7 +176,7 @@ class register_slices():
                 mov_polyline = polylines0[i+1]
                 
                 if self.transfo_type == 'linear':
-                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)     
+                    _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
                     
                 elif self.transfo_type == 'polynomial':
                     moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
@@ -404,10 +413,10 @@ class register_slices():
         for _ in range(self.niter):
 
             for i in range(1, nslice-1, 2):
-                
+
                 mov_polyline = polylines0[i]
                 ref_polyline = [polylines0[i-1], polylines0[i+1]]
-                
+
                 if self.transfo_type == 'linear':
                     _, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
                 elif self.transfo_type == 'polynomial':

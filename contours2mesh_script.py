@@ -1,4 +1,4 @@
-wkdir = '/Users/alegouhy/tests/contours2mesh'
+wkdir = '/Users/alegouhy/tests/ferret_atlas'
 import os
 os.environ['JAX_PLATFORMS'] = 'cpu'
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
@@ -41,7 +41,7 @@ io.save(meshes_raw, outdir, suffix='raw')
 
 #%% registration - rigid ICP
 
-for method in range(6):
+for method in [4]: #range(4):
     
     
     transfo = 'rigid'

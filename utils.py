@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import skimage
 import jax.numpy as jnp
 import jax
-from scipy.linalg import logm    # not in jax.scipy yet...
+from scipy.linalg import logm                # not in jax.scipy yet...
 from scipy.ndimage import gaussian_filter1d
+from scipy import sparse
 import plotly.graph_objects as go
 import plotly.io as pio
 pio.renderers.default = 'browser'
@@ -23,7 +24,7 @@ cols = np.array([[0.902, 0.098, 0.294],
                  [1.000, 0.682, 0.098],
                  [0.961, 0.510, 0.188],
                  [0.569, 0.118, 0.706],
-                 [0.275, 0.941, 0.941],
+                 [0.275, 0.841, 0.741],
                  [0.941, 0.196, 0.902],
                  [0.667, 0.431, 0.157],
                  [0.980, 0.745, 0.831]])
@@ -87,7 +88,6 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
         
         ipt += n_pts
     
-    print(len(pts))
     pts = np.array(np.concatenate(pts, axis=0))
     if get_simps: 
         simps = np.array(np.concatenate(simps, axis=0) )
@@ -508,6 +508,42 @@ def concat_contours(contours, z_coords=None):
     return pts_all, simps_all, normals_all, labs_all
 
 
+def polylines_2d_3d(polylines, dim, slice_pos):
+    
+    pts = np.zeros((0,3))
+    simps = np.zeros((0,2), dtype=np.int16)
+    offset = 0
+    for i in range(len(polylines)):
+
+        pts_i, simps_i, normals_i, labs_i = polylines[i]
+        npts = pts_i.shape[0]
+        pts_i = np.c_[pts_i[:,:dim], slice_pos[i]*np.ones(npts), pts_i[:,dim:]]
+        simps_i = simps_i + offset
+        pts = np.r_[pts, pts_i]
+        simps = np.r_[simps, simps_i]
+        offset += npts
+        
+    return pts, simps
+
+
+def polylines_3d_2d(polylines, dim, decimals=10):
+    
+    pts, simps = polylines
+    slice_pos = np.round(pts[:, dim], decimals=decimals)
+    polylines_3d = pts, simps, None, None
+    
+    polylines_2d = []
+    for pos in np.unique(slice_pos):
+        
+        pts_mask = slice_pos == pos
+        pts, simps, _, _ = extract_polyline(polylines_3d, pts_mask)
+        pts = np.delete(pts, dim, axis=1)
+        
+        polylines_2d.append((pts, simps, None, None))    
+
+    return polylines_2d
+
+        
 def extract_polyline(polyline, pts_mask):
 
     pts, simps, normals, labs = polyline
@@ -530,23 +566,73 @@ def extract_polyline(polyline, pts_mask):
 
 
 
-def neighs_contour(simps, npts=None):
+# def neighs_mesh(simps, npts=None):
+    
+#     if npts is None:
+#         npts = jnp.max(simps) + 1
+        
+#     neighs = jnp.zeros((npts, 3), jnp.int32)
+#     for i in range(npts):
+#         neigh = simps[jnp.where(simps == i)[0], :].ravel()
+#         neigh = jnp.unique(neigh)
+#         neighs = neighs.at[i,:].set(neigh)
+        
+#     return neighs
+
+
+def edges_from_simps(simps):
+    
+    if simps.shape[1] == 2:
+        edges = simps
+    elif simps.shape[1] == 3:
+        edges = np.concatenate([simps[:, [0, 1]],
+                                simps[:, [1, 2]],
+                                simps[:, [2, 0]]])
+    elif simps.shape[1] == 4:
+        edges = np.concatenate([simps[:, [0, 1]], 
+                                simps[:, [0, 2]], 
+                                simps[:, [0, 3]],
+                                simps[:, [1, 2]], 
+                                simps[:, [1, 3]], 
+                                simps[:, [2, 3]]])
+    
+    edges = np.sort(edges, axis=1)
+    edges = np.unique(edges, axis=0)
+    
+    return edges
+    
+    
+def neighs_from_simps(simps, npts=None):
     
     if npts is None:
-        npts = jnp.max(simps) + 1
-        
-    neighs = jnp.zeros((npts, 3), jnp.int32)
-    for i in range(npts):
-        neigh = simps[jnp.where(simps == i)[0], :].ravel()
-        neigh = jnp.unique(neigh)
-        neighs = neighs.at[i,:].set(neigh)
-        
-    return neighs
-
-            
-def normalise_pts(pts_list, mu=None, amp=None):
+        npts = np.max(simps) + 1
+    edges = edges_from_simps(simps)
     
-    pts_all = np.concatenate(pts_list, axis=0)
+    i = np.concatenate([edges[:, 0], edges[:, 1]])
+    j = np.concatenate([edges[:, 1], edges[:, 0]])
+    adj = sparse.coo_matrix((np.ones(len(i)), (i, j)), shape=(npts, npts)).tocsr()
+    
+    max_neighbors = adj.getnnz(axis=1).max()
+    neighborhoods = np.full((npts, max_neighbors), -1, dtype=np.int32)
+    n_neighbors = np.zeros(npts, dtype=np.int32)
+    
+    for i in range(npts):
+        neighbors = adj.getrow(i).indices
+        neighborhoods[i, :len(neighbors)] = neighbors
+        n_neighbors[i] = len(neighbors)
+    
+    return jnp.array(neighborhoods), jnp.array(n_neighbors)
+
+
+
+
+def normalise_pts(pts_list, mu=None, amp=None, mode='first'):
+    "mode: 'first' or 'all'"
+    
+    if mode == 'all':
+        pts_all = np.concatenate(pts_list, axis=0)
+    elif mode == 'first':
+        pts_all = pts_list[0]
     
     if mu is None: mu = np.mean(pts_all, axis=0)
     if amp is None: amp = np.max(np.abs(pts_all - mu))
@@ -554,6 +640,41 @@ def normalise_pts(pts_list, mu=None, amp=None):
     pts_norm = [(pts - mu) / amp for pts in pts_list]
     
     return pts_norm, mu, amp
+
+def denormalise_pts(pts_list, mu, amp):
+    
+    pts_denorm = [pts * amp + mu for pts in pts_list]
+    
+    return pts_denorm
+
+
+def normalise_meshes(mesh_list, mu=None, amp=None, mode='first'):
+    
+    pts_list = [mesh[0] for mesh in mesh_list]
+    pts_norm, mu, amp = normalise_pts(pts_list)
+    
+    meshes_norm = []
+    for i in range(len(mesh_list)):
+        
+        _, simps, normals, labs = mesh_list[i]
+        mesh = pts_norm[i], simps, normals, labs
+        meshes_norm.append(mesh)
+    
+    return meshes_norm, mu, amp
+
+def denormalise_meshes(mesh_list, mu, amp):
+    
+    pts_list = [mesh[0] for mesh in mesh_list]
+    pts_denorm = denormalise_pts(pts_list, mu, amp)
+    
+    meshes_denorm = []
+    for i in range(len(mesh_list)):
+        
+        _, simps, normals, labs = mesh_list[i]
+        mesh = pts_denorm[i], simps, normals, labs
+        meshes_denorm.append(mesh)
+    
+    return meshes_denorm
 
 
 def plot_img(img):
@@ -1048,7 +1169,7 @@ def plot_path(path, n1, n2):
     plt.axis('off')
   
 
-# @jax.jit
+@jax.jit
 def triangle_path_dp(opts1, opts2):
     
     opts1 = jnp.array(opts1)
@@ -1638,3 +1759,160 @@ def boxplot(y, x, col=[0,0,1], w=0.5, lw=2, ax=plt):
     plt.plot(x, np.mean(y), '*', color=col)
     return bp
     
+
+
+def plot_obj(pts, simps=None, point_size=2, line_width=2, 
+             pts_col=(0,0,1), line_col=(0,0,0.5), face_col=(0.5,0.5,1),
+             opacity=0.7, show_points=True, title=None, fig=None):
+    
+    def to_rgb_string(col):
+        return f'rgb({int(col[0]*255)}, {int(col[1]*255)}, {int(col[2]*255)})'
+
+    pts_col = to_rgb_string(pts_col)
+    line_col = to_rgb_string(line_col)
+    face_col = to_rgb_string(face_col)
+
+    pts = np.asarray(pts)
+    n, d = pts.shape
+    
+    if d not in [2, 3]:
+        raise ValueError(f"Only 2D and 3D supported, got {d}D")
+    
+    if fig is None: fig = go.Figure()
+    
+    if simps is not None:
+        simps = np.asarray(simps)
+        m, p = simps.shape
+        
+        if d == 2:
+            if p == 2:
+                for simplex in simps:
+                    i, j = simplex
+                    fig.add_trace(go.Scatter(x=[pts[i, 0], pts[j, 0]], 
+                                             y=[pts[i, 1], pts[j, 1]],
+                                             mode='lines', line=dict(color=line_col, width=line_width)))
+            
+            elif p == 3:
+                for simplex in simps:
+                    i, j, k = simplex
+                    fig.add_trace(go.Scatter(x=[pts[i, 0], pts[j, 0], pts[k, 0], pts[i, 0]],
+                                             y=[pts[i, 1], pts[j, 1], pts[k, 1], pts[i, 1]],
+                                             fill='toself', fillcolor=face_col, opacity=opacity, line=dict(color=line_col, width=line_width)))
+        
+        elif d == 3:
+            if p == 2:
+                x_lines, y_lines, z_lines = [], [], []
+                for simplex in simps:
+                    i, j = simplex
+                    x_lines.extend([pts[i, 0], pts[j, 0], None])
+                    y_lines.extend([pts[i, 1], pts[j, 1], None])
+                    z_lines.extend([pts[i, 2], pts[j, 2], None])
+                
+                fig.add_trace(go.Scatter3d(x=x_lines, y=y_lines, z=z_lines,
+                    mode='lines', line=dict(color=line_col, width=line_width)))
+            
+            elif p == 3:
+                fig.add_trace(go.Mesh3d(x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+                    i=simps[:, 0], j=simps[:, 1], k=simps[:, 2],
+                    color=face_col, opacity=opacity))
+            
+            elif p == 4:
+                edges_set = set()
+                for simplex in simps:
+                    for i in range(4):
+                        for j in range(i+1, 4):
+                            edge = tuple(sorted([simplex[i], simplex[j]]))
+                            edges_set.add(edge)
+                
+                x_lines, y_lines, z_lines = [], [], []
+                for i, j in edges_set:
+                    x_lines.extend([pts[i, 0], pts[j, 0], None])
+                    y_lines.extend([pts[i, 1], pts[j, 1], None])
+                    z_lines.extend([pts[i, 2], pts[j, 2], None])
+                
+                fig.add_trace(go.Scatter3d(
+                    x=x_lines, y=y_lines, z=z_lines,
+                    mode='lines',
+                    line=dict(color=line_col, width=line_width)))
+    
+    if show_points:
+        if d == 2:
+            fig.add_trace(go.Scatter(x=pts[:, 0], y=pts[:, 1],
+                                     mode='markers', marker=dict(size=point_size, color=pts_col)))
+        elif d == 3:
+            fig.add_trace(go.Scatter3d(x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+                                       mode='markers', marker=dict(size=point_size, color=pts_col)))
+    
+    fig.update_layout(title=title,
+                      scene=dict(aspectmode='data') if d == 3 else None)
+    
+    return fig
+
+
+def rot_mat(ang, axis, ndims, center=None):
+    
+    if axis is None or ang == 0:
+        if center is None: return np.eye(ndims)
+        else: return np.eye(ndims), np.zeros((ndims,1))
+    
+    c = np.cos(ang)
+    s = np.sin(ang)
+    
+    if ndims == 2:
+        lin = np.array([[c, -s],
+                        [s,  c]])
+    
+    elif ndims == 3:
+        if axis == 0:
+            lin = np.array([[1,  0,  0],
+                            [0,  c, -s],
+                            [0,  s,  c]])
+        elif axis == 1:
+            lin = np.array([[ c,  0,  s],
+                            [ 0,  1,  0],
+                            [-s,  0,  c]])
+        elif axis == 2:
+            lin = np.array([[c, -s,  0],
+                            [s,  c,  0],
+                            [0,  0,  1]])
+            
+    if center is None: 
+        return lin
+    else:
+        center = np.reshape(center, (ndims, 1))
+        trans = -lin @ center + center
+        return lin, trans
+    
+        
+def refl_mat(axis, ndims, center=None):
+
+    lin = np.eye(ndims)
+    
+    if axis is not None:
+        lin[axis, axis] = -1
+    
+    if center is None:  
+        return lin
+    else:
+        center = np.reshape(center, (ndims, 1))
+        trans = -lin @ center + center
+        return lin, trans
+
+
+def farthest_point_sampling(pts, npts):
+
+    ind = jnp.zeros(npts, dtype=jnp.int32)
+    ind = ind.at[0].set(0)
+    
+    dist = jnp.full(pts.shape[0], jnp.inf)
+ 
+    for i in range(1, npts):
+
+        last_idx = ind[i-1]
+        new_dist = jnp.sum((pts - pts[last_idx])**2, axis=1)
+        dist = jnp.minimum(dist, new_dist)
+        
+        farthest_idx = jnp.argmax(dist)
+        ind = ind.at[i].set(farthest_idx)
+    
+    return ind, pts[ind]
