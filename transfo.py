@@ -4,6 +4,7 @@ from itertools import product
 from scipy.linalg import logm
 from scipy.linalg import expm
 from scipy.stats.qmc import Sobol
+import jax
 
 import utils
 
@@ -65,7 +66,14 @@ class kernel_disp():
     def interp(self, pts, cpts, theta_lin, theta_trans):
             
         sqdist = utils.pts_dist(pts, cpts)                                     # (npts, ncpts)
-        weight = jnp.exp(-sqdist / (2*self.sigma**2))                            
+        weight = jnp.exp(-sqdist / (2*self.sigma**2))                
+        
+        ######
+        # diff = pts[:,None,:] - cpts[None,:,:]
+        # sqdist = diff[:,:,0] ** 2
+        # weight = 1 / (1 + sqdist / self.sigma**2)
+        ######
+                    
         weight = weight / (jnp.sum(weight, axis=1)[...,None] + self.eps)
 
         if theta_trans is not None and theta_lin is None:
@@ -90,6 +98,65 @@ class kernel_disp():
         return sigma
     
 
+
+class kernel_disp_shit():
+
+    def __init__(self, sigma, eps=1e-14, int_steps=None):
+
+        self.sigma = sigma
+        self.eps = eps
+        
+    def compute(self, pts, cpts, theta_lin=None, theta_trans=None):
+        # pts (npts, ndims):                points where we want to evaluate the disp.
+        # cpts (ncpts, ndims):              points where theta is known.              
+        # theta_trans (ncpts, ndims):       transfo params (translation part).
+        # theta_lin (ncpts, ndims, ndims):  transfo params (linear part).
+        
+        disp = self.pointwise_exp(pts, cpts, theta_lin, theta_trans)
+
+        return disp
+
+    
+    def pointwise_exp(self, pts, cpts, theta_lin, theta_trans):
+        # PolyPose's fast approximation: directly apply exp of weighted average
+        # of log-transforms pointwise — no ODE integration.
+        
+        npts, ndims = pts.shape
+
+        # Compute Gaussian weights
+        sqdist = utils.pts_dist(pts, cpts)                                      # (npts, ncpts)
+        weight = jnp.exp(-sqdist / (2*self.sigma**2))
+        weight = weight / (jnp.sum(weight, axis=1)[..., None] + self.eps)      # (npts, ncpts)
+
+        # Weighted average of log-transform matrices at each point x
+        avg_lin   = jnp.einsum('ij,jkl->ikl', weight, theta_lin)               # (npts, ndims, ndims)
+        avg_trans = weight @ theta_trans                                         # (npts, ndims)
+
+        # Assemble (ndims+1) x (ndims+1) log-transform matrices: [[L, t], [0, 0]]
+        top    = jnp.concatenate([avg_lin, avg_trans[..., None]], axis=-1)      # (npts, ndims, ndims+1)
+        bottom = jnp.zeros((npts, 1, ndims+1))                                  # (npts, 1, ndims+1)
+        M      = jnp.concatenate([top, bottom], axis=1)                         # (npts, ndims+1, ndims+1)
+
+        # Apply matrix exponential pointwise — this is the fast approximation,
+        # NOT equivalent to integrating dφ/dt = V(φ(t)) as in proper LEPT.
+        T = jax.vmap(jax.scipy.linalg.expm)(M)                                 # (npts, ndims+1, ndims+1)
+
+        # Apply T to pts in homogeneous coordinates
+        pts_hom = jnp.concatenate([pts, jnp.ones((npts, 1))], axis=-1)         # (npts, ndims+1)
+        pts_new = jnp.einsum('ijk,ik->ij', T, pts_hom)[:, :ndims]              # (npts, ndims)
+
+        return pts_new - pts
+
+        
+    def sigma_silverman(self, pts):
+        
+        iqr = jnp.mean(jnp.quantile(pts, (3/4), axis=0) - jnp.quantile(pts, (1/4), axis=0))
+        std = jnp.mean(jnp.std(pts, axis=0))
+        sigma = 0.9 * jnp.min(jnp.stack((std, iqr / 1.349))) * pts.shape[0] ** (-1/5)
+        
+        return sigma
+    
+    
 
 class init_transfo():
     

@@ -1763,7 +1763,7 @@ def boxplot(y, x, col=[0,0,1], w=0.5, lw=2, ax=plt):
 
 def plot_obj(pts, simps=None, point_size=2, line_width=2, 
              pts_col=(0,0,1), line_col=(0,0,0.5), face_col=(0.5,0.5,1),
-             opacity=0.7, show_points=True, title=None, fig=None):
+             opacity=0.7, show_points=True, title=None, xlim=None, ylim=None, zlim=None, fig=None):
     
     def to_rgb_string(col):
         return f'rgb({int(col[0]*255)}, {int(col[1]*255)}, {int(col[2]*255)})'
@@ -1843,8 +1843,16 @@ def plot_obj(pts, simps=None, point_size=2, line_width=2,
             fig.add_trace(go.Scatter3d(x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
                                        mode='markers', marker=dict(size=point_size, color=pts_col)))
     
-    fig.update_layout(title=title,
-                      scene=dict(aspectmode='data') if d == 3 else None)
+    if d == 2:
+        xaxis = dict(range=list(xlim)) if xlim is not None else None
+        yaxis = dict(range=list(ylim)) if ylim is not None else None
+        fig.update_layout(title=title,xaxis=xaxis,yaxis=yaxis)
+    elif d == 3:
+        scene = dict(aspectmode='data')
+        if xlim is not None: scene["xaxis"] = dict(range=list(xlim))
+        if ylim is not None: scene["yaxis"] = dict(range=list(ylim))
+        if zlim is not None: scene["zaxis"] = dict(range=list(zlim))
+        fig.update_layout(title=title, scene=scene)
     
     return fig
 

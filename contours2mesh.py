@@ -37,11 +37,15 @@ class io():
         else:
             self.pts_mu = np.zeros(pts_all.shape[1])
             self.pts_amp = 1
-            
+        
+        self.xlim = np.min(pts_all[:,0]), np.max(pts_all[:,0])
+        self.ylim = np.min(pts_all[:,1]), np.max(pts_all[:,1])
+        
         ii = 0
         polylines = []
         for i in range(nslice):
-        
+            
+            print(ii,i)
             polyline = []
             for l in range(self.nlabs):
                 opts = opts_lists[l][i]
@@ -61,7 +65,7 @@ class io():
             polylines.append(polyline)
             ii += 1
             if plot:
-                utils.plot_contour(polyline)
+                utils.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
                 plt.title(str(i) + ', ' + str(ii))
                 plt.show()
           
@@ -129,20 +133,26 @@ class io():
 class register_slices():
     
     def __init__(self, method, transfo, init='identity', niter=1, degree=2, icp_niter=30, bidir=True,
-                 fit_fun=None, regul_fun=None, lr=1e-2, wreg=1e-1, sigma=1e-1, int_steps=16, plot=False):
+                 fit_fun=None, regul_fun=None, lr=1e-2, wreg=1e-1, sigma=1e-1, int_steps=16,
+                 plot=False, xlim=None, ylim=None):
         
         self.method = method   
         self.niter = niter
+        
         if transfo in ('rig', 'rigid', 'aff', 'affine'):
             self.transfo_type = 'linear'
-            self.reg = register.reg_linear(niter=icp_niter, transfo=transfo, init=init, se=True, bidir=bidir, plot=plot)
+            self.reg = register.reg_linear(niter=icp_niter, transfo=transfo, init=init, se=True, bidir=bidir,
+                                           plot=plot, xlim=xlim, ylim=ylim)
+            
         elif transfo in ('poly', 'polynomial'):
             self.transfo_type = 'polynomial'
-            self.reg = register.reg_polynom(niter=icp_niter, degree=degree, init=init, se=True, bidir=bidir, plot=plot)
+            self.reg = register.reg_polynom(niter=icp_niter, degree=degree, init=init, se=True, bidir=bidir,
+                                            plot=plot, xlim=xlim, ylim=ylim)
+            
         elif transfo == 'deformable':
             self.transfo_type = 'deformable'
             self.reg = register.reg_deformable(niter=icp_niter, fit_fun=fit_fun, regul_fun=regul_fun, 
-                                               lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps) #, plot=plot)
+                                               lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps, plot=plot)
             
             
     def compute(self, polylines):

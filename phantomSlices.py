@@ -75,17 +75,17 @@ for i in range(nslice):
 
     # global affine:
     _, theta_lin, theta_trans = transfo_ops.random_locAff(ndims=2, ncpts=1, liealg=False,
-                                                      so_corner=[0,0], ne_corner=[0,0], bound_scal=0,
-                                                      trans_bounds=trans_bounds, rot_bounds=rot_bounds, 
-                                                      scalDir_bounds=scalDir_bounds, scal_bounds=scal_bounds)
+                                                          so_corner=[0,0], ne_corner=[0,0], bound_scal=0,
+                                                          trans_bounds=trans_bounds, rot_bounds=rot_bounds, 
+                                                          scalDir_bounds=scalDir_bounds, scal_bounds=scal_bounds)
     pts_moved = pts @ theta_lin[0,:,:].T + theta_trans[0,:]
     pts_moved = jnp.array(pts_moved)
     
     # polyaffine:
     cpts, theta_lin, theta_trans = transfo_ops.random_locAff(ndims=2, ncpts=ncpts,
-                                                         so_corner=so_corner, ne_corner=ne_corner, bound_scal=bound_scal,
-                                                         trans_bounds=trans_bounds_loc, rot_bounds=rot_bounds_loc, 
-                                                         scalDir_bounds=scalDir_bounds_loc, scal_bounds=scal_bounds_loc)
+                                                             so_corner=so_corner, ne_corner=ne_corner, bound_scal=bound_scal,
+                                                             trans_bounds=trans_bounds_loc, rot_bounds=rot_bounds_loc, 
+                                                             scalDir_bounds=scalDir_bounds_loc, scal_bounds=scal_bounds_loc)
     cpts = jnp.array(cpts)
     theta_lin = None # jnp.array(theta_lin)
     theta_trans = jnp.array(theta_trans)

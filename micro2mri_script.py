@@ -96,9 +96,10 @@ sigma = [5e-1, 1e-1, 5e-2]
 cpts_ratio = [0.05, 0.1, 0.2]
 
 for i in range(3):
-    fit_fun = energy.pointdist(agg='mean', l=2)
+    # fit_fun = energy.pointdist(agg='mean', est='welsch', sigma=0.01, bidir=True)
+    fit_fun = energy.pointdist(agg='mean', alpha=-2, scale=0.01, bidir=True)
     # regul_fun = energy.grad_disp(l=2)
-    regul_fun = energy.alap(transfo='rigid', l=2)
+    regul_fun = energy.alap(transfo='similarity', l=2)
     regul_fun.set_neighs(mesh_micro_defo[1], mesh_micro_defo[0].shape[0])
 
     reg_defo = register.reg_deformable(niter=50, fit_fun=fit_fun, regul_fun=regul_fun, 
