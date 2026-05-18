@@ -106,7 +106,7 @@ class pointdist():
                     mov_pts_lab = mov_pts[mov_ind_lab, :]
                     
                     dist = ref_pts_lab[:,None,:] - mov_pts_lab[None,:,:]
-                    dist = jnp.sqrt(jnp.sum(dist ** 2, axis=-1))     
+                    dist = jnp.sum(dist ** 2, axis=-1)
                     
                     dist_nn = jnp.min(dist, axis=0)
                     dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)

@@ -1,4 +1,4 @@
-testdir = '/Users/alegouhy/tests/ferret_atlas'
+testdir = '/Users/alegouhy/tests/ferret_atlas_reg'
 import os
 os.chdir(testdir)
 os.environ['JAX_PLATFORMS'] = 'cpu'
@@ -51,7 +51,7 @@ polylines_aff = reg.compute(polylines_rig)
 
 # deformable
 t = time.time()
-fit_fun = energy.pointdist(agg='mean', l=2)
+fit_fun = energy.pointdist(agg='mean')
 regul_fun = energy.grad_disp(l=2)
 reg = c2m.register_slices(reg_met, transfo='deformable', fit_fun=fit_fun, regul_fun=regul_fun, niter=1,
                           icp_niter=50, lr=1e-2, wreg=5e-1, sigma=1e-1, int_steps=16, plot=False)
