@@ -27,8 +27,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["contours2mesh*"]
+
+[tool.setuptools.package-data]
+contours2mesh = ["data/*.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
