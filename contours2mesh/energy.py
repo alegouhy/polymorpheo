@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 
-import transfo as transfo_ops
-import utils
+import contours2mesh.transfo as transfo_ops
+import contours2mesh.utils as utils
 
 
 

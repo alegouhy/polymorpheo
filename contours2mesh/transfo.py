@@ -6,7 +6,7 @@ from scipy.linalg import expm
 from scipy.stats.qmc import Sobol
 import jax
 
-import utils
+import contours2mesh.utils as utils
 
 
 class kernel_disp():

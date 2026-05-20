@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from jax import lax
 from functools import partial
 
-import utils
-import energy
-import transfo as transfo_ops
+import contours2mesh.utils as utils
+import contours2mesh.energy as energy
+import contours2mesh.transfo as transfo_ops
 
 
 #%%
