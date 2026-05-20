@@ -15,9 +15,13 @@ dependencies = [
   "numpy",
   "optax",
   "pandas>=2.3.3",
+  "plotly",
+  "pyvista",
   "scikit-image",
   "scipy",
+  "shapely",
   "tqdm",
+  "triangle",
 ]
 
 [project.optional-dependencies]
