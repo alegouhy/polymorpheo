@@ -14,6 +14,9 @@ import contours2mesh.energy as energy
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "reports"
 
+# create reports dir if it doesn't exist
+REPORTS_DIR.mkdir(exist_ok=True)
+
 datadir_path = str(files("contours2mesh.data").joinpath("sample_contours.npz"))
 
 io = c2m.io(
@@ -51,6 +54,7 @@ reg = c2m.register_slices(
 polylines_rig = reg.compute(polylines_raw)
 meshes_rig = mesher.compute(polylines_rig)
 io.save(meshes_rig, REPORTS_DIR, suffix="rig_met-" + str(method))
+print("Saved rigid meshes in " + str(REPORTS_DIR))
 
 
 transfo = "affine"
@@ -62,7 +66,7 @@ reg = c2m.register_slices(
 polylines_aff = reg.compute(polylines_rig)
 meshes_aff = mesher.compute(polylines_aff)
 io.save(meshes_aff, REPORTS_DIR, suffix="aff_met-" + str(method))
-
+print("Saved affine meshes in " + str(REPORTS_DIR))
 
 # transfo = 'polynomial'
 # degree = 2
@@ -99,3 +103,4 @@ reg = c2m.register_slices(
 polylines_defo = reg.compute(polylines_aff)
 meshes_defo = mesher.compute(polylines_defo)
 io.save(meshes_defo, REPORTS_DIR, suffix="defo_met-" + str(method) + "-" + str(niter))
+print("Saved deformable meshes in " + str(REPORTS_DIR))
