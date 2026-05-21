@@ -4,8 +4,8 @@ import time
 import numpy as np
 from scipy.linalg import expm, logm
 
-import contours2mesh.register as register
-import contours2mesh.utils as utils
+import polymorpheo.register as register
+import polymorpheo.utils as utils
 
 
 class bridge_contours:
