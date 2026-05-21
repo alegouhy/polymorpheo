@@ -155,7 +155,7 @@ def split_opts_2(opts, i, j):
     return [opts1, opts2]
 
 
-def inside_simps_contour(opts, keep_contour=True):
+def inside_simps_contour(opts):
     npts = opts.shape[0]
     simps = np.stack((np.arange(npts), np.roll(np.arange(len(opts)), -1)), axis=1)
     poly_dict = {"vertices": opts, "segments": simps}
@@ -177,7 +177,7 @@ def splitfit_opts(opts_1, opts_2):
     opts_1 = [open_contour(opt) for opt in opts_1]
     opts_2 = [open_contour(opt) for opt in opts_2]
 
-    simps_inside = inside_simps_contour(opts_1[0], keep_contour=True)
+    simps_inside = inside_simps_contour(opts_1[0])
 
     i_hat = 0
     j_hat = 0
@@ -212,162 +212,17 @@ def splitfit_opts(opts_1, opts_2):
 
     opts_1_split = cw(opts_1_split)
 
-    # plt.subplot(2,2,1)
-    # plot_opts(opts_1[0], col=[1,0,0])
-
-    # plt.subplot(2,2,2)
-    # plot_opts(opts_2[0], col=[0,0,0.5])
-    # plot_opts(opts_2[1], col=[0,0,1])
-
-    # plt.subplot(2,2,3)
-    # plot_opts(opts_1_split[0], col=[1,0,0])
-    # plot_opts(opts_2[0], col=[0,0,1])
-
-    # plt.subplot(2,2,4)
-    # plot_opts(opts_1_split[1], col=[1,0,0])
-    # plot_opts(opts_2[1], col=[0,0,1])
-    # plt.suptitle(len(opts_1))
-    # plt.show()
-
     return opts_1_split
-
-
-# def splitfit_opts(opts_1, opts_2):
-
-#     opts_1 = [open_contour(opt) for opt in opts_1]
-#     opts_2 = [open_contour(opt) for opt in opts_2]
-#     n = opts_1[0].shape[0]
-
-#     i_hat = 0
-#     j_hat = 0
-#     dist_hat = np.inf
-
-#     for i in range(1, n):
-#         for j in range(i, n):
-
-#             opts_1_split = split_opts_2(opts_1[0], i, j)
-#             opts_1_split = [open_contour(opt) for opt in opts_1_split]
-
-#             dist0 = chamfer(opts_1_split[0], opts_2[0]) + \
-#                     chamfer(opts_1_split[1], opts_2[1])
-
-#             dist1 = chamfer(opts_1[0], opts_2[0]) + \
-#                     chamfer(opts_1_split[1], opts_2[1])
-
-#             dist2 = chamfer(opts_1[0], opts_2[0]) + \
-#                     chamfer(opts_1_split[0], opts_2[1])
-
-#             dist3 = chamfer(opts_1_split[0], opts_2[1]) + \
-#                     chamfer(opts_1_split[1], opts_2[0])
-
-#             dist4 = chamfer(opts_1[0], opts_2[1]) + \
-#                     chamfer(opts_1_split[1], opts_2[0])
-
-#             dist5 = chamfer(opts_1[0], opts_2[1]) + \
-#                     chamfer(opts_1_split[0], opts_2[0])
-
-#             dists = [dist0, dist1, dist2, dist3, dist4, dist5]
-#             ind_dist = np.argmin(dists)
-#             dist = dists[ind_dist]
-
-#             if dist < dist_hat:
-#                 i_hat, j_hat = i, j
-#                 dist_hat = dist.copy()
-#                 ind_dist_hat = ind_dist.copy()
-
-#     opts_1_split = split_opts_2(opts_1[0], i_hat, j_hat)
-#     opts_1_split = [open_contour(opt) for opt in opts_1_split]
-
-#     if ind_dist_hat in (1,4):
-#         opts_1_split = [opts_1[0], opts_1_split[1]]
-#     elif ind_dist_hat in (2,5):
-#         opts_1_split = [opts_1[0], opts_1_split[0]]
-
-#     if ind_dist_hat > 2:
-#         opts_1_split = [opts_1_split[1], opts_1_split[0]]
-
-#     # plt.figure()
-#     # plt.subplot(2,2,1)
-#     # plot_opts(opts_1_split[0], markersize=1)
-#     # plt.subplot(2,2,2)
-#     # plot_opts(opts_1_split[1], markersize=1)
-#     # plt.subplot(2,2,3)
-#     # plot_opts(opts_2[0], markersize=1)
-#     # plt.subplot(2,2,4)
-#     # plot_opts(opts_2[1], markersize=1)
-#     # plt.show()
-
-#     opts_1_split = cw(opts_1_split)
-
-#     # plt.figure()
-#     # plt.subplot(2,2,1)
-#     # plot_opts(opts_1_split[0])
-#     # plt.subplot(2,2,2)
-#     # plot_opts(opts_1_split[1])
-#     # plt.subplot(2,2,3)
-#     # plot_opts(opts_2[0])
-#     # plt.subplot(2,2,4)
-#     # plot_opts(opts_2[1])
-#     # plt.show()
-
-#     return opts_1_split
-
-
-# def splitfit_opts(opts_1, opts_2):
-
-#     i_hat = 0
-#     j_hat = 0
-#     dist_hat = np.inf
-
-#     n = opts_1[0].shape[0]
-
-#     for i in range(n):
-#         for j in range(n):
-#             if i > j: continue
-
-#             opts_1_split = split_opts_2(opts_1[0], i, j)
-
-#             dist1 = chamfer(opts_1_split[0], opts_2[0]) + \
-#                     chamfer(opts_1_split[1], opts_2[1])
-
-#             dist2 = chamfer(opts_1_split[0], opts_2[1]) + \
-#                     chamfer(opts_1_split[1], opts_2[0])
-
-#             dist = min(dist1, dist2)
-
-#             if dist < dist_hat:
-#                 i_hat = i
-#                 j_hat = j
-#                 dist_hat = dist
-#                 swap = True if dist2 < dist1 else False
-
-#     opts_1_split = split_opts_2(opts_1[0], i_hat, j_hat)
-#     opts_1_split = cw(opts_1_split)
-#     if swap:
-#         opts_1_split = [opts_1_split[1], opts_1_split[0]]
-
-#     cols = [[0,0,1],[1,0,0]]
-#     plt.figure()
-#     for i, opt in enumerate(opts_1_split):
-#         plot_opts(opt, col=cols[i])
-#     plt.show()
-
-#     plt.figure()
-#     for i, opt in enumerate(opts_1_split):
-#         plot_opts(opt, col=cols[i])
-#         plt.show()
-
-#     return opts_1_split
 
 
 def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False, relab=True):
     labs = np.unique(seg[seg > 0])
 
     contours = []
-    for l in range(len(labs)):
-        opts_list = skimage.measure.find_contours(seg == labs[l])
+    for i in range(len(labs)):
+        opts_list = skimage.measure.find_contours(seg == labs[i])
         opts_list = [opts[:, [1, 0]] for opts in opts_list]
-        lab = l + 1 if relab else labs[l]
+        lab = i + 1 if relab else labs[i]
         contour = opts_to_contour(
             opts_list, npts=npts, get_simps=get_simps, get_normals=get_normals, lab=lab
         )
@@ -376,11 +231,11 @@ def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False, relab=True
     return concat_contours(contours)
 
 
-def pts_dist(pts1, pts2, l=2):
+def pts_dist(pts1, pts2, i=2):
     diff = pts1[:, None, :] - pts2[None, :, :]
-    if l == 1:
+    if i == 1:
         dist = jnp.sum(jnp.abs(diff), axis=-1)
-    if l == 2:
+    if i == 2:
         dist = jnp.sum(diff**2, axis=-1)
 
     return dist
@@ -461,13 +316,8 @@ def normals_contour(pts, simps, eps=1e-9):
     edges = pts[simps[:, 1]] - pts[simps[:, 0]]
 
     edge_normals = np.stack([edges[:, 1], -edges[:, 0]], axis=1)
-    # edge_normals = edge_normals / (
-    #     jnp.linalg.norm(edge_normals, axis=1, keepdims=True) + eps
-    #     )
 
     pts_normals = np.zeros(pts.shape)
-    # pts_normals = pts_normals.at[simps[:, 0]].add(edge_normals)
-    # pts_normals = pts_normals.at[simps[:, 1]].add(edge_normals)
     pts_normals[simps[:, 0]] += edge_normals
     pts_normals[simps[:, 1]] += edge_normals
 
@@ -565,20 +415,6 @@ def extract_polyline(polyline, pts_mask):
         simps_new = None
 
     return pts_new, simps_new, normals_new, labs_new
-
-
-# def neighs_mesh(simps, npts=None):
-
-#     if npts is None:
-#         npts = jnp.max(simps) + 1
-
-#     neighs = jnp.zeros((npts, 3), jnp.int32)
-#     for i in range(npts):
-#         neigh = simps[jnp.where(simps == i)[0], :].ravel()
-#         neigh = jnp.unique(neigh)
-#         neighs = neighs.at[i,:].set(neigh)
-
-#     return neighs
 
 
 def edges_from_simps(simps):
@@ -708,15 +544,6 @@ def plot_contour(
         col_pts = np.stack([np.array(col)] * npts, axis=0)
 
     if simps is not None:
-        # for edge in simps:
-        # plt.plot(
-        #     pts[edge, 0],
-        #     pts[edge, 1],
-        #     '-',
-        #     color=col_simps,
-        #     linewidth=linewidth,
-        #     zorder=-2
-        #     )
         xs = []
         ys = []
         for a, b in simps:
@@ -978,9 +805,6 @@ def bridge_contours(
             )
             simps_k = simps_k + offset
 
-            # pts_k = np.vstack([opts_1k, opts_2k])
-            # simps_k = simps_k + offset
-
             pts.append(pts_k)
             simps.append(simps_k)
             offset += pts_k.shape[0]
@@ -1041,46 +865,6 @@ def clean_mesh(pts, simps):
     pts_clean, simps_clean = rm_single_pts(pts_clean, simps_clean)
 
     return pts_clean, simps_clean
-
-
-# def phase_align_contours(opts1, opts2, f=None):
-
-# opts1 = np.asarray(opts1)
-# opts2 = np.asarray(opts2)
-# n1, n2 = opts1.shape[0], opts2.shape[0]
-# if f is None:
-#     f = np.min([n1, n2])
-# else:
-#     f = np.min([f, n1, n2])
-
-# diffs1 = np.diff(opts1, axis=0, append=opts1[:1])
-# diffs2 = np.diff(opts2, axis=0, append=opts2[:1])
-# s1 = np.concatenate([[0], np.cumsum(np.linalg.norm(diffs1, axis=1))])
-# s2 = np.concatenate([[0], np.cumsum(np.linalg.norm(diffs2, axis=1))])
-# s1 /= s1[-1]
-# s2 /= s2[-1]
-
-# target_frac = np.linspace(0, 1, f, endpoint=True)
-# idx1 = np.searchsorted(s1, target_frac, side="right") - 1
-# idx1 = np.clip(idx1, 0, n1 - 1)
-# p1 = opts1[idx1]
-
-# idx2_base = np.searchsorted(s2, target_frac, side="right") - 1
-# idx2_base = np.clip(idx2_base, 0, n2 - 1)
-
-# best_shift, best_cost = 0, np.inf
-# for shift in range(n2):
-#     shifted_idx = (idx2_base + shift) % n2
-#     p2 = opts2[shifted_idx]
-#     # cost = np.mean(np.linalg.norm(p1 - p2, axis=1))
-#     cost = np.max(np.sum((p1 - p2)**2, axis=1))
-#     if cost < best_cost:
-#         best_cost = cost
-#         best_shift = shift
-
-# opts2 = np.roll(opts2, -best_shift, axis=0)
-
-# return opts2
 
 
 def phase_align_contours(opts1, opts2, alpha=0.5, sigma=2):
@@ -1290,7 +1074,7 @@ def rasterize(contours, imshape=None):
     return vol
 
 
-def contours2mesh_ratserize(contours, spacing=[1, 1], paired=False):
+def contours2mesh_ratserize(contours, spacing=[1, 1]):
     spacing = np.array(spacing)
 
     all_pts = np.vstack([opt for contour in contours for opt in contour])
@@ -1736,11 +1520,6 @@ def vtkpoly2mesh(poly, ax2d=None):
     if pts_col_vtk is not None:
         pts_col = vtk_to_numpy(pts_col_vtk)
 
-        # pts_col_vtk = poly.GetPointData().GetArray("color")
-        # if pts_col_vtk is not None:
-        #     pts_col = [pts_col_vtk.GetTuple(i) for i in range(pts.shape[0])]
-        #     pts_col = np.array(pts_col, dtype=np.int64)
-
         return pts, simps, pts_col
     else:
         return pts, simps
@@ -1791,7 +1570,7 @@ def nearest_neighbors(
     return ref_nn_pts, mov_nn_pts
 
 
-def boxplot(y, x, col=[0, 0, 1], w=0.5, lw=2, ax=plt):
+def boxplot(y, x, col=[0, 0, 1], w=0.5, lw=2):
     # whis = None
     whis = (0, 100)
     bp = plt.boxplot(
@@ -1804,7 +1583,6 @@ def boxplot(y, x, col=[0, 0, 1], w=0.5, lw=2, ax=plt):
     for b in ["whiskers", "caps", "boxes", "medians"]:
         for a in bp[b]:
             a.set_linewidth(lw)
-        # a.set(facecolor=col, alpha=0.1, linewidth=3, edgecolor='blue')
     plt.plot(x, np.mean(y), "*", color=col)
     return bp
 

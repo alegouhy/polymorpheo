@@ -63,12 +63,6 @@ class kernel_disp:
         sqdist = utils.pts_dist(pts, cpts)  # (npts, ncpts)
         weight = jnp.exp(-sqdist / (2 * self.sigma**2))
 
-        ######
-        # diff = pts[:,None,:] - cpts[None,:,:]
-        # sqdist = diff[:,:,0] ** 2
-        # weight = 1 / (1 + sqdist / self.sigma**2)
-        ######
-
         weight = weight / (jnp.sum(weight, axis=1)[..., None] + self.eps)
 
         if theta_trans is not None and theta_lin is None:
@@ -225,11 +219,6 @@ class opti_linear_transfo:
         sqrt_weights = jnp.sqrt(weights[:, None])
         ref_pts_wbar = (ref_pts - ref_pts_mu) * sqrt_weights
         mov_pts_wbar = (mov_pts - mov_pts_mu) * sqrt_weights
-
-        # nu = jnp.unique(ref_pts_bar, axis=0).shape[0]
-        # if nu <= ndims + 2:   # Tikhonov regularization
-        #     mov_pts_bar = jnp.vstack([mov_pts_bar, self.gamma * jnp.eye(ndims)])
-        #     ref_pts_bar = jnp.vstack([ref_pts_bar, jnp.zeros((ndims, ndims))])
 
         if self.transfo in ("rigid", "similarity"):
             cov = ref_pts_wbar.T @ mov_pts_wbar
