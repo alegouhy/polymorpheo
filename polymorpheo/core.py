@@ -213,7 +213,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(
+                    disp = self.reg.polytransfo.compute(
                         mov_pts, mov_pts, theta_lin=None, theta_trans=theta
                     )
                     moved_pts = mov_pts + disp
@@ -264,7 +264,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(
+                    disp = self.reg.polytransfo.compute(
                         mov_pts, mov_pts, theta_lin=None, theta_trans=theta
                     )
                     moved_pts = mov_pts + disp
@@ -304,7 +304,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(
+                    disp = self.reg.polytransfo.compute(
                         mov_pts, mov_pts, theta_lin=None, theta_trans=theta
                     )
                     moved_pts = mov_pts + disp
@@ -366,7 +366,7 @@ class register_slices:
                         else (np.zeros_like(mov_pts), None, None)
                     )
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(
+                    disp = self.reg.polytransfo.compute(
                         mov_pts, mov_pts, theta_lin=None, theta_trans=theta
                     )
                     moved_pts = mov_pts + disp
@@ -432,7 +432,7 @@ class register_slices:
                         else (np.zeros_like(mov_pts), None, None)
                     )
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.kernel_fun.compute(
+                    disp = self.reg.polytransfo.compute(
                         mov_pts, mov_pts, theta_lin=None, theta_trans=theta
                     )
                     moved_pts = mov_pts + disp
