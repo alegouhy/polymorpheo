@@ -1,4 +1,4 @@
-# contours2mesh
+# polymorpheo
 
 Register polynomial contours to 3D meshes.
 Use in order rigid, affine, polynomial, or nonrigid registration to align contours, and marching cubes to mesh them.

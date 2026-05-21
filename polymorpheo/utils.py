@@ -1074,7 +1074,7 @@ def rasterize(contours, imshape=None):
     return vol
 
 
-def contours2mesh_ratserize(contours, spacing=[1, 1]):
+def rasterize_contours(contours, spacing=[1, 1]):
     spacing = np.array(spacing)
 
     all_pts = np.vstack([opt for contour in contours for opt in contour])
