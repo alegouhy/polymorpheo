@@ -9,10 +9,11 @@ import polymorpheo.utils as utils
 
 
 class bridge_contours:
-    def __init__(self, thr_conn=1 / 3, greedy=False, sealed=True):
+    def __init__(self, thr_conn=1 / 3, greedy=False, sealed=True, z_spacing=1.0):
         self.thr_conn = thr_conn
         self.greedy = greedy
         self.sealed = sealed
+        self.z_spacing = z_spacing
 
     def compute(self, polylines):
         nslices = len(polylines)
@@ -21,7 +22,7 @@ class bridge_contours:
             labs = [1]
         else:
             labs = np.unique(np.concatenate([polyline[3] for polyline in polylines]))
-        z_coords = np.arange(nslices)
+        z_coords = np.arange(nslices) * self.z_spacing
 
         if isinstance(self.thr_conn, (list, tuple, np.ndarray)):
             thr_conn = self.thr_conn
