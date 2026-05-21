@@ -155,7 +155,7 @@ def split_opts_2(opts, i, j):
     return [opts1, opts2]
 
 
-def inside_simps_contour(opts, keep_contour=True):
+def inside_simps_contour(opts):
     npts = opts.shape[0]
     simps = np.stack((np.arange(npts), np.roll(np.arange(len(opts)), -1)), axis=1)
     poly_dict = {"vertices": opts, "segments": simps}
@@ -177,7 +177,7 @@ def splitfit_opts(opts_1, opts_2):
     opts_1 = [open_contour(opt) for opt in opts_1]
     opts_2 = [open_contour(opt) for opt in opts_2]
 
-    simps_inside = inside_simps_contour(opts_1[0], keep_contour=True)
+    simps_inside = inside_simps_contour(opts_1[0])
 
     i_hat = 0
     j_hat = 0
