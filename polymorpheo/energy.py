@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 
-import contours2mesh.transfo as transfo_ops
-import contours2mesh.utils as utils
+import polymorpheo.transfo as transfo_ops
+import polymorpheo.utils as utils
 
 
 class pointdist:
