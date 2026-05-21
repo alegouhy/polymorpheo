@@ -36,7 +36,8 @@ polylines_raw = io.load()
 
 
 # spacing = np.array([0.1, 0.1, 1.25])
-spacing = np.array([1, 1, 12.5])
+# spacing = np.array([1, 1, 12.5])
+spacing = np.array([1, 1, 2])
 npts = 100
 npts_min = 5
 icp_niter = 20
@@ -57,7 +58,7 @@ io = c2m.io(
 
 polylines_raw = io.load()
 
-mesher = c2m.bridge_contours(thr_conn=thr_conn, sealed=True, z_spacing=spacing[2])
+mesher = c2m.bridge_contours(thr_conn=thr_conn, sealed=True)
 
 
 transfo = "rigid"
