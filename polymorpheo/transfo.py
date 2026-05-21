@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import expm, logm
 from scipy.stats.qmc import Sobol
 
-import contours2mesh.utils as utils
+import polymorpheo.utils as utils
 
 
 class kernel_disp:

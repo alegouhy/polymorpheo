@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from contours2mesh.io import io
+from polymorpheo.io import io
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
