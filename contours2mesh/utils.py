@@ -231,17 +231,17 @@ def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False, relab=True
     return concat_contours(contours)
 
 
-def pts_dist(pts1, pts2, i=2):
+def pts_dist(pts1, pts2, l_norm=2):
     diff = pts1[:, None, :] - pts2[None, :, :]
-    if i == 1:
+    if l_norm == 1:
         dist = jnp.sum(jnp.abs(diff), axis=-1)
-    if i == 2:
+    if l_norm == 2:
         dist = jnp.sum(diff**2, axis=-1)
 
     return dist
 
 
-pts_dist = jax.jit(pts_dist, static_argnames=("l",))
+pts_dist = jax.jit(pts_dist, static_argnames=("l_norm",))
 
 
 @jax.jit
