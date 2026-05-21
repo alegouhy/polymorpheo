@@ -1,3 +1,4 @@
+import logging
 import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
@@ -10,6 +11,9 @@ import numpy as np
 
 import contours2mesh as c2m
 import contours2mesh.energy as energy
+from contours2mesh.log import configure_logging
+
+configure_logging(level=logging.WARNING)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "reports"
