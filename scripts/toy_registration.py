@@ -60,7 +60,6 @@ reg_rig = register.reg_linear(niter=niter, transfo=transfo, init=init, se=True, 
 
 t = time.time()
 rig, moved_contour_rig = reg_rig.compute(ref_contour, mov_contour)
-
 print(f"rigid done in: {time.time()-t:.2f} s")
 
 plt.subplot(2,3,2)
@@ -77,7 +76,7 @@ transfo = 'similarity' # 'affine'
 reg_aff = register.reg_linear(niter=niter, transfo=transfo, se=True, plot=False, bidir=bidir)
 
 t = time.time()
-aff, moved_contour_aff = reg_aff.compute(ref_contour, moved_contour_rig, T0=rig)
+aff, moved_contour_aff = reg_aff.compute(ref_contour, moved_contour_rig)
 print(f"affine done in: {time.time()-t:.2f} s")
 
 plt.subplot(2,3,3)
@@ -124,7 +123,7 @@ plt.title('cubic')
 #%% non-rigid ICP
 
 niter = 50
-lr = [1e-2, 1e-3, 1e-3]
+lr = [1e-2] # , 1e-3, 1e-3]
 wreg = [1e-1, 1e-2, 1e-2]
 int_steps = 16
 sigma = [1e-1, 1e-2, 1e-3]
@@ -135,15 +134,16 @@ regul_fun = energy.grad_disp(l_norm=2)
 moved_contour_defo = moved_contour_aff
 
 losses = []
+reg_defos = []
 t = time.time()
 for i in range(len(lr)):
-    
+
     reg_defo = register.reg_deformable(niter=niter, fit_fun=fit_fun, regul_fun=regul_fun,
                                        lr=lr[i], wreg=wreg[i], sigma=sigma[i], int_steps=int_steps,
-                                       tol=tol, plot=False)
-    
+                                       tol=tol, plot=False, normalise=True)
+
     disp, moved_contour_defo, loss = reg_defo.compute(ref_contour, moved_contour_defo)
-    
+    reg_defos.append(reg_defo)
     losses.append(loss)
 
 print(f"deformable done in: {time.time()-t:.2f} s")
@@ -162,3 +162,34 @@ for i in range(len(lr)):
     plt.plot(losses[i])
     plt.suptitle('energy')
 plt.show()
+
+
+#%% test transfo chain compo
+
+import polymorpheo.transfo as transfo_ops
+
+rig_lin, rig_trans = utils.aff_dehmgn(rig)
+rig_transfo = transfo_ops.affine()
+rig_transfo.set_params(rig_lin, rig_trans)
+
+aff_lin, aff_trans = utils.aff_dehmgn(aff)
+aff_transfo = transfo_ops.affine()
+aff_transfo.set_params(aff_lin, aff_trans)
+
+
+chain = [rig_transfo, aff_transfo] + [rd.polytransfo for rd in reg_defos]
+moved_pts_chain = transfo_ops.apply_transfo_chain(chain, mov_pts)
+
+import jax.numpy as jnp
+print("max diff rig:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_rig[0]))))
+
+plt.figure()
+# utils.plot_contour(ref_contour, col=[1,0,0])
+utils.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0,0,1])
+utils.plot_contour(moved_contour_defo, col=[0,1,0])
+plt.title('chain (blue) vs sequential (green)')
+plt.show()
+
+
+
+

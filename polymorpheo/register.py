@@ -8,8 +8,8 @@ import polymorpheo.energy as energy
 import polymorpheo.transfo as transfo_ops
 import polymorpheo.utils as utils
 
-# %%
 
+# %%
 
 def load_meshes(ref_mesh, mov_mesh, normalise=True):
     ref_meshes = [ref_mesh] if hasattr(ref_mesh[0], "shape") else ref_mesh
@@ -281,7 +281,7 @@ class reg_deformable:
         self.sigma = sigma
         self.int_steps = int_steps
         self.normalise = normalise
-        self.kernel_fun = transfo_ops.kernel_disp(
+        self.polytransfo = transfo_ops.polytransfo(
             sigma=sigma, int_steps=int_steps, rk=rk
         )
         self.fit_fun = fit_fun
@@ -308,7 +308,7 @@ class reg_deformable:
         )
 
         opti_step = self.make_opti_step(
-            fit_fun, regul_fun, wreg, self.kernel_fun, self.optimizer
+            fit_fun, regul_fun, wreg, self.polytransfo, self.optimizer
         )
         if not self.plot:
             self.opti_loop = self.make_opti_loop(opti_step, tol, niter, warmup_steps)
@@ -318,31 +318,34 @@ class reg_deformable:
             )
 
     def compute(self, ref_mesh, mov_mesh):
-        ref_mesh_list, mov_mesh, mu, amp = load_meshes(
-            ref_mesh, mov_mesh, self.normalise
-        )
-        mov_pts, mov_simps, _, mov_labs = mov_mesh
+        
+        ref_mesh_list, mov_mesh_n, mu, amp = load_meshes(ref_mesh, mov_mesh, self.normalise)
+        mov_pts_n, mov_simps, _, mov_labs = mov_mesh_n
 
         if self.cpts_ratio == 1:
-            cpts = mov_pts
+            cpts = mov_pts_n
         else:
-            ncpts = int(mov_pts.shape[0] * self.cpts_ratio)
-            _, cpts = utils.farthest_point_sampling(mov_pts, ncpts)
+            ncpts = int(mov_pts_n.shape[0] * self.cpts_ratio)
+            _, cpts = utils.farthest_point_sampling(mov_pts_n, ncpts)
+
         theta0 = jnp.zeros_like(cpts)
         opt_state = self.optimizer.init(theta0)
+        theta, losses = self.opti_loop(theta0, opt_state, cpts, mov_mesh_n, ref_mesh_list)
 
-        theta, losses = self.opti_loop(theta0, opt_state, cpts, mov_mesh, ref_mesh_list)
+        disp = self.polytransfo.compute(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
+        moved_mesh = utils.denormalise_meshes(
+            [(mov_pts_n + disp, mov_simps, None, mov_labs)], mu, amp
+        )[0]
 
-        disp = self.kernel_fun.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
-        moved_pts = mov_pts + disp
-        moved_mesh = (moved_pts, mov_simps, None, mov_labs)
+        self.polytransfo.sigma = self.sigma * amp
+        self.polytransfo.set_params(cpts * amp + mu, theta_trans=theta * amp)
 
-        disp = disp * amp
-        moved_mesh = utils.denormalise_meshes([moved_mesh], mu, amp)[0]
+        return theta * amp, moved_mesh, losses
 
-        return theta, moved_mesh, losses
 
-    def make_opti_step(self, fit_fun, regul_fun, wreg, kernel_fun, optimizer):
+
+    def make_opti_step(self, fit_fun, regul_fun, wreg, polytransfo, optimizer):
+        
         @jax.jit
         def opti_step(theta, opt_state, cpts, mov_mesh, ref_mesh_list):
             loss, grads = jax.value_and_grad(energy.energy_total_fn)(
@@ -353,7 +356,7 @@ class reg_deformable:
                 fit_fun,
                 regul_fun,
                 wreg,
-                kernel_fun,
+                polytransfo,
             )
             updates, opt_state = optimizer.update(grads, opt_state, theta)
             theta = optax.apply_updates(theta, updates)
@@ -413,7 +416,7 @@ class reg_deformable:
                         break
 
                 if k % self.plot == 0:
-                    disp = self.kernel_fun.compute(
+                    disp = self.polytransfo.compute(
                         mov_pts, cpts, theta_lin=None, theta_trans=theta
                     )
                     moved_mesh_plot = (mov_pts + disp, mov_simps, None, mov_labs)
