@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-import contours2mesh as c2m
-import contours2mesh.energy as energy
+import polymorpheo as c2m
+import polymorpheo.energy as energy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "reports"
@@ -17,7 +17,7 @@ REPORTS_DIR = REPO_ROOT / "reports"
 # create reports dir if it doesn't exist
 REPORTS_DIR.mkdir(exist_ok=True)
 
-datadir_path = str(files("contours2mesh.data").joinpath("sample_contours.npz"))
+datadir_path = str(files("polymorpheo.data").joinpath("sample_contours.npz"))
 
 io = c2m.io(
     datadir=datadir_path.replace("/sample_contours.npz", ""),
