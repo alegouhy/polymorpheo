@@ -87,7 +87,7 @@ sigma = 1e-1
 icp_niter = 50
 fit_fun = energy.pointdist(agg="mean", bidir=bidir)
 # regul_fun = energy.alap(transfo='similarity', normtype='l2')
-regul_fun = energy.grad_disp(l=2)
+regul_fun = energy.grad_disp(l_norm=2)
 reg = c2m.register_slices(
     method,
     transfo,
