@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "contours2mesh"
+name = "polymorpheo"
 version = "0.1.0"
 description = "Register polynomial contours to 3D meshes."
 readme = "README.md"
@@ -31,10 +31,10 @@ dev = ["pytest", "ruff", "pre-commit"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["contours2mesh*"]
+include = ["polymorpheo*"]
 
 [tool.setuptools.package-data]
-contours2mesh = ["data/*.npz"]
+polymorpheo = ["data/*.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

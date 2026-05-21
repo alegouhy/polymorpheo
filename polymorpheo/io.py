@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-import contours2mesh.utils as utils
+import polymorpheo.utils as utils
 
 
 class io:

@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import optax
 from jax import lax
 
-import contours2mesh.energy as energy
-import contours2mesh.transfo as transfo_ops
-import contours2mesh.utils as utils
+import polymorpheo.energy as energy
+import polymorpheo.transfo as transfo_ops
+import polymorpheo.utils as utils
 
 # %%
 
