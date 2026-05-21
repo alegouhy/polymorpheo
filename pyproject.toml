@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contours2mesh"
+version = "0.1.0"
+description = "Register polynomial contours to 3D meshes."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "jax",
+  "jaxlib",
+  "matplotlib",
+  "numpy",
+  "optax",
+  "pandas>=2.3.3",
+  "plotly",
+  "pyvista",
+  "scikit-image",
+  "scipy",
+  "shapely",
+  "tqdm",
+  "triangle",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pre-commit"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["contours2mesh*"]
+
+[tool.setuptools.package-data]
+contours2mesh = ["data/*.npz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # errors, pyflakes, import sorting
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+]
