@@ -5,6 +5,10 @@ import numpy as np
 
 import contours2mesh.utils as utils
 
+from .log import get_logger
+
+logger = get_logger(__name__)
+
 
 class io:
     def __init__(
@@ -46,18 +50,19 @@ class io:
         self.xlim = np.min(pts_all[:, 0]), np.max(pts_all[:, 0])
         self.ylim = np.min(pts_all[:, 1]), np.max(pts_all[:, 1])
 
+        logger.info("Loading contours from %s", files)
         ii = 0
         polylines = []
         for i in range(nslice):
-            print(ii, i)
+            logger.debug("processing slice index=%d output_index=%d", i, ii)
             polyline = []
-            for l in range(self.nlabs):
-                opts = opts_lists[l][i]
+            for j in range(self.nlabs):
+                opts = opts_lists[j][i]
                 if opts is None:
                     continue
                 opts = [opt for opt in opts if len(opt) >= self.npts_min]
                 polyline_l = utils.opts_to_contour(
-                    opts, npts=self.npts, get_simps=True, lab=l + 1
+                    opts, npts=self.npts, get_simps=True, lab=j + 1
                 )
                 polyline.append(polyline_l)
             if len(polyline) == 0:
@@ -73,6 +78,7 @@ class io:
             polylines.append(polyline)
             ii += 1
             if plot:
+                logger.info("Plotting slice %d/%d", i + 1, nslice)
                 utils.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
                 plt.title(str(i) + ", " + str(ii))
                 plt.show()
@@ -107,6 +113,7 @@ class io:
             polylines.append(polyline)
 
             if plot:
+                logger.info("Plotting vtk slice %d/%d", i + 1, nslice)
                 utils.plot_contour(polyline)
                 plt.title(str(i))
                 plt.show()
@@ -117,8 +124,8 @@ class io:
         if suffix != "":
             suffix = "_" + suffix
 
-        for l in range(self.nlabs):
-            pts, simps = meshes[l]
+        for i in range(self.nlabs):
+            pts, simps = meshes[i]
 
             if self.normalise:
                 pts[:, :2] = pts[:, :2] * self.pts_amp + self.pts_mu
@@ -127,5 +134,5 @@ class io:
 
             poly = utils.vtkpoly(pts, simps)
             poly = utils.fix_normals_vtkpoly(poly)
-            out_file = os.path.join(outdir, self.names[l] + suffix + ".obj")
+            out_file = os.path.join(outdir, self.names[i] + suffix + ".obj")
             utils.write_vtkpoly(poly, out_file)
