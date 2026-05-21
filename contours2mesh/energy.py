@@ -4,61 +4,6 @@ import jax.numpy as jnp
 import contours2mesh.transfo as transfo_ops
 import contours2mesh.utils as utils
 
-# class pointdist():
-
-#     def __init__(self, agg='mean', est='l2', sigma=2, bidir=True):
-
-#         self.est = est
-#         self.sigma = sigma
-#         self.bidir = bidir
-#         if agg == 'max': self.agg_fun = jnp.max
-#         elif agg == 'mean': self.agg_fun = jnp.mean
-
-
-#     def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None):
-
-#         ref_pts_list = [ref_pts] if hasattr(ref_pts, 'shape') else ref_pts
-#         ref_labs_list = [ref_labs] if hasattr(ref_pts, 'shape') else ref_labs
-#         use_labs = (ref_labs_list is not None) and (mov_labs is not None)
-
-#         pts_dist = 0.
-#         if not use_labs:
-#             for ref_pts in ref_pts_list:
-#                 dist = ref_pts[:,None,:] - mov_pts[None,:,:]
-#                 dist = jnp.sum(dist ** 2, axis=-1)
-
-#                 dist_nn = jnp.min(dist, axis=0)
-#                 dist_nn = m_estimator(dist_nn, est=self.est, sigma=self.sigma)
-#                 pts_dist += self.agg_fun(dist_nn)
-
-#                 if self.bidir:
-#                     dist_nn = jnp.min(dist, axis=1)
-#                     dist_nn = m_estimator(dist_nn, est=self.est, sigma=self.sigma)
-#                     pts_dist += self.agg_fun(dist_nn)
-
-#         else:
-#             for ref_pts, ref_labs in zip(ref_pts_list, ref_labs_list):
-
-#                 labs = jnp.intersect1d(mov_labs, ref_labs)
-#                 for lab in labs:
-
-#                     ref_pts_lab = ref_pts[ref_labs == lab, :]
-#                     mov_ind_lab = mov_labs == lab
-#                     mov_pts_lab = mov_pts[mov_ind_lab, :]
-
-#                     dist = ref_pts_lab[:,None,:] - mov_pts_lab[None,:,:]
-#                     dist = jnp.sqrt(jnp.sum(dist ** 2, axis=-1))
-
-#                     dist_nn = jnp.min(dist, axis=0)
-#                     dist_nn = m_estimator(dist_nn, est=self.est, sigma=self.sigma)
-#                     pts_dist += self.agg_fun(dist_nn)
-#                     if self.bidir:
-#                         dist_nn = jnp.min(dist, axis=1)
-#                         dist_nn = m_estimator(dist_nn, est=self.est, sigma=self.sigma)
-#                         pts_dist += self.agg_fun(dist_nn)
-
-#         return pts_dist
-
 
 class pointdist:
     def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
@@ -115,8 +60,8 @@ class pointdist:
 
 
 class grad_disp:
-    def __init__(self, l=2, eps=1e-9):
-        self.l = l
+    def __init__(self, l_norm=2, eps=1e-9):
+        self.l_norm = l_norm
         self.eps = eps
 
     def compute(self, disp, pts, simps):
@@ -144,10 +89,10 @@ class grad_disp:
         disp_diff = disp[idx0] - disp[idx1]
         pts_diff = pts[idx0] - pts[idx1]
 
-        if self.l == 2:
+        if self.l_norm == 2:
             disp_norm = jnp.sum(disp_diff**2, axis=-1)
             pts_norm = jnp.sum(pts_diff**2, axis=-1)
-        elif self.l == 1:
+        elif self.l_norm == 1:
             disp_norm = jnp.sum(jnp.abs(disp_diff), axis=-1)
             pts_norm = jnp.sum(jnp.abs(pts_diff), axis=-1)
 
@@ -159,8 +104,8 @@ class alap:
     as linear as possible
     """
 
-    def __init__(self, transfo="rigid", l=2, eps=1e-9):
-        self.l = l  # l1 or l2 norm
+    def __init__(self, transfo="rigid", l_norm=2, eps=1e-9):
+        self.l_norm = l_norm  # l1 or l2 norm
         self.eps = eps
         self.transfo = transfo  # 'rigid', 'similarity' or 'affine'
         self.opti_transfo_fun = transfo_ops.opti_linear_transfo(transfo, se=True)
@@ -204,9 +149,9 @@ class alap:
         reconstructed = (pts_neigh @ lin.T) + trans
         diff = moved_neigh - reconstructed
 
-        if self.l == 2:
+        if self.l_norm == 2:
             energy_per_neighbor = jnp.sum(diff**2, axis=-1)
-        elif self.l == 1:
+        elif self.l_norm == 1:
             energy_per_neighbor = jnp.sum(jnp.abs(diff), axis=-1)
 
         masked_energy = energy_per_neighbor * mask
