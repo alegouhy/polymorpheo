@@ -1,8 +1,8 @@
 """Public API for contours2mesh."""
 
 from . import energy, register, transfo, utils
-from .io import io
 from .core import bridge_contours, register_slices
+from .io import io
 
 __all__ = [
     "energy",

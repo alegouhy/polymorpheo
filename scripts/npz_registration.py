@@ -1,16 +1,15 @@
 import os
-os.environ['JAX_PLATFORMS'] = 'cpu'
+
+os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
-import matplotlib.pyplot as plt
+from importlib.resources import files
+from pathlib import Path
+
 import numpy as np
 
-import contours2mesh.utils as utils
-import contours2mesh.energy as energy
 import contours2mesh as c2m
-from pathlib import Path
-from importlib.resources import files
-
+import contours2mesh.energy as energy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "reports"
@@ -22,8 +21,8 @@ io = c2m.io(
     names=["sample_contours"],
     npts=10,
     npts_min=5,
-    normalise=True
-    )
+    normalise=True,
+)
 
 
 polylines_raw = io.load()
@@ -38,31 +37,31 @@ bidir = True
 thr_conn = [0.2, 0.5]
 niter = 5
 
-method = 4              # serial registration method 
+method = 4  # serial registration method
 
 mesher = c2m.bridge_contours(thr_conn=thr_conn, sealed=True)
 
 
-  
-transfo = 'rigid'
-print('method ' + str(method) + ', ' + transfo)
-init = 'centroid'
-reg = c2m.register_slices(method, transfo, init, bidir=bidir,
-                          plot=False, xlim=io.xlim, ylim=io.ylim)
+transfo = "rigid"
+print("method " + str(method) + ", " + transfo)
+init = "centroid"
+reg = c2m.register_slices(
+    method, transfo, init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim
+)
 polylines_rig = reg.compute(polylines_raw)
 meshes_rig = mesher.compute(polylines_rig)
-io.save(meshes_rig, REPORTS_DIR, suffix='rig_met-'+str(method))
+io.save(meshes_rig, REPORTS_DIR, suffix="rig_met-" + str(method))
 
 
-transfo = 'affine'
-print('method ' + str(method) + ', ' + transfo)
-init = 'identity'
-reg = c2m.register_slices(method, transfo, init, bidir=bidir,
-                          plot=False, xlim=io.xlim, ylim=io.ylim)
+transfo = "affine"
+print("method " + str(method) + ", " + transfo)
+init = "identity"
+reg = c2m.register_slices(
+    method, transfo, init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim
+)
 polylines_aff = reg.compute(polylines_rig)
 meshes_aff = mesher.compute(polylines_aff)
-io.save(meshes_aff, REPORTS_DIR, suffix='aff_met-'+str(method))
-
+io.save(meshes_aff, REPORTS_DIR, suffix="aff_met-" + str(method))
 
 
 # transfo = 'polynomial'
@@ -75,18 +74,28 @@ io.save(meshes_aff, REPORTS_DIR, suffix='aff_met-'+str(method))
 # io.save(meshes_quad, outdir, suffix='quad_met-'+str(method))
 
 
-transfo = 'deformable'
-print('method ' + str(method) + ', ' + transfo)
+transfo = "deformable"
+print("method " + str(method) + ", " + transfo)
 lr = 1e-2
 wreg = 5e-1
 int_steps = 16
 sigma = 1e-1
 icp_niter = 50
-fit_fun = energy.pointdist(agg='mean', bidir=bidir)
+fit_fun = energy.pointdist(agg="mean", bidir=bidir)
 # regul_fun = energy.alap(transfo='similarity', normtype='l2')
 regul_fun = energy.grad_disp(l=2)
-reg = c2m.register_slices(method, transfo, fit_fun=fit_fun, regul_fun=regul_fun, niter=niter,
-                          icp_niter=icp_niter, lr=lr, wreg=wreg, sigma=sigma, int_steps=int_steps)
+reg = c2m.register_slices(
+    method,
+    transfo,
+    fit_fun=fit_fun,
+    regul_fun=regul_fun,
+    niter=niter,
+    icp_niter=icp_niter,
+    lr=lr,
+    wreg=wreg,
+    sigma=sigma,
+    int_steps=int_steps,
+)
 polylines_defo = reg.compute(polylines_aff)
 meshes_defo = mesher.compute(polylines_defo)
-io.save(meshes_defo, REPORTS_DIR, suffix='defo_met-'+str(method)+'-'+str(niter))
+io.save(meshes_defo, REPORTS_DIR, suffix="defo_met-" + str(method) + "-" + str(niter))

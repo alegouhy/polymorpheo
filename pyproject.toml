@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff", "pre-commit"]
 
 [tool.setuptools]
 include-package-data = true
@@ -39,3 +39,15 @@ contours2mesh = ["data/*.npz"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # errors, pyflakes, import sorting
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+]
