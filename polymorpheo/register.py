@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 
 # %%
 
+
 def load_meshes(ref_mesh, mov_mesh, normalise=True):
     ref_meshes = [ref_mesh] if hasattr(ref_mesh[0], "shape") else ref_mesh
 
@@ -302,9 +303,7 @@ class reg_deformable:
         self.sigma = sigma
         self.int_steps = int_steps
         self.normalise = normalise
-        self.polytransfo = transfo_ops.polytransfo(
-            sigma=sigma, int_steps=int_steps, rk=rk
-        )
+        self.polytransfo = transfo_ops.polytransfo(sigma=sigma, int_steps=int_steps, rk=rk)
         self.fit_fun = fit_fun
         self.regul_fun = regul_fun
         self.cpts_ratio = cpts_ratio
@@ -328,18 +327,14 @@ class reg_deformable:
             optax.scale(-1.0),
         )
 
-        opti_step = self.make_opti_step(
-            fit_fun, regul_fun, wreg, self.polytransfo, self.optimizer
-        )
+        opti_step = self.make_opti_step(fit_fun, regul_fun, wreg, self.polytransfo, self.optimizer)
         if not self.plot:
             self.opti_loop = self.make_opti_loop(opti_step, tol, niter, warmup_steps)
         else:
-            self.opti_loop = self.make_opti_plot_loop(
-                opti_step, tol, niter, warmup_steps
-            )
+            self.opti_loop = self.make_opti_plot_loop(opti_step, tol, niter, warmup_steps)
 
     def compute(self, ref_mesh, mov_mesh):
-        
+
         ref_mesh_list, mov_mesh_n, mu, amp = load_meshes(ref_mesh, mov_mesh, self.normalise)
         mov_pts_n, mov_simps, _, mov_labs = mov_mesh_n
 
@@ -354,19 +349,15 @@ class reg_deformable:
         theta, losses = self.opti_loop(theta0, opt_state, cpts, mov_mesh_n, ref_mesh_list)
 
         disp = self.polytransfo.compute(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
-        moved_mesh = utils.denormalise_meshes(
-            [(mov_pts_n + disp, mov_simps, None, mov_labs)], mu, amp
-        )[0]
+        moved_mesh = utils.denormalise_meshes([(mov_pts_n + disp, mov_simps, None, mov_labs)], mu, amp)[0]
 
         self.polytransfo.sigma = self.sigma * amp
         self.polytransfo.set_params(cpts * amp + mu, theta_trans=theta * amp)
 
         return theta * amp, moved_mesh, losses
 
-
-
     def make_opti_step(self, fit_fun, regul_fun, wreg, polytransfo, optimizer):
-        
+
         @jax.jit
         def opti_step(theta, opt_state, cpts, mov_mesh, ref_mesh_list):
             loss, grads = jax.value_and_grad(energy.energy_total_fn)(
@@ -397,9 +388,7 @@ class reg_deformable:
 
             def body_fn(state):
                 theta, opt_state, loss_hist, k, loss_prev, loss_curr = state
-                theta, opt_state, loss = opti_step(
-                    theta, opt_state, cpts, mov_mesh, ref_mesh_list
-                )
+                theta, opt_state, loss = opti_step(theta, opt_state, cpts, mov_mesh, ref_mesh_list)
                 loss_hist = loss_hist.at[k].set(loss)
                 return theta, opt_state, loss_hist, k + 1, loss_curr, loss
 
@@ -411,9 +400,7 @@ class reg_deformable:
                 jnp.inf,
                 jnp.inf,
             )
-            theta, opt_state, losses, _, _, _ = lax.while_loop(
-                cond_fn, body_fn, init_state
-            )
+            theta, opt_state, losses, _, _, _ = lax.while_loop(cond_fn, body_fn, init_state)
             return theta, losses
 
         return opti_loop
@@ -426,9 +413,7 @@ class reg_deformable:
 
             losses = []
             for k in range(niter):
-                theta, opt_state, loss = opti_step(
-                    theta, opt_state, cpts, mov_mesh, ref_mesh_list
-                )
+                theta, opt_state, loss = opti_step(theta, opt_state, cpts, mov_mesh, ref_mesh_list)
                 losses.append(loss)
 
                 if tol_val > 0 and len(losses) >= warmup_steps + 2:
@@ -437,9 +422,7 @@ class reg_deformable:
                         break
 
                 if k % self.plot == 0:
-                    disp = self.polytransfo.compute(
-                        mov_pts, cpts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.polytransfo.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
                     moved_mesh_plot = (mov_pts + disp, mov_simps, None, mov_labs)
                     for ref_m in ref_mesh_list:
                         utils.plot_contour(ref_m, col=[1, 0, 0])

@@ -163,9 +163,7 @@ def inside_simps_contour(opts):
     tri = triangle.triangulate(poly_dict, "p")
     triangles = tri["triangles"]
 
-    simps_tri = np.vstack(
-        [triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]
-    )
+    simps_tri = np.vstack([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]])
     simps_tri = simps_tri[np.all(simps_tri < npts, axis=1)]
     simps_tri = np.sort(simps_tri, axis=1)
     simps_tri = np.unique(simps_tri, axis=0)
@@ -187,13 +185,9 @@ def splitfit_opts(opts_1, opts_2):
         opts_1_split = split_opts_2(opts_1[0], simp[0], simp[1])
         opts_1_split = [open_contour(opt) for opt in opts_1_split]
 
-        dist0 = chamfer(opts_1_split[0], opts_2[0]) + chamfer(
-            opts_1_split[1], opts_2[1]
-        )
+        dist0 = chamfer(opts_1_split[0], opts_2[0]) + chamfer(opts_1_split[1], opts_2[1])
 
-        dist1 = chamfer(opts_1_split[0], opts_2[1]) + chamfer(
-            opts_1_split[1], opts_2[0]
-        )
+        dist1 = chamfer(opts_1_split[0], opts_2[1]) + chamfer(opts_1_split[1], opts_2[0])
 
         dists = [dist0, dist1]
         ind_dist = np.argmin(dists)
@@ -223,9 +217,7 @@ def seg_to_contour(seg, npts=None, get_simps=True, get_normals=False, relab=True
         opts_list = skimage.measure.find_contours(seg == labs[i])
         opts_list = [opts[:, [1, 0]] for opts in opts_list]
         lab = i + 1 if relab else labs[i]
-        contour = opts_to_contour(
-            opts_list, npts=npts, get_simps=get_simps, get_normals=get_normals, lab=lab
-        )
+        contour = opts_to_contour(opts_list, npts=npts, get_simps=get_simps, get_normals=get_normals, lab=lab)
         contours.append(contour)
 
     return concat_contours(contours)
@@ -321,9 +313,7 @@ def normals_contour(pts, simps, eps=1e-9):
     pts_normals[simps[:, 0]] += edge_normals
     pts_normals[simps[:, 1]] += edge_normals
 
-    pts_normals = pts_normals / (
-        np.linalg.norm(pts_normals, axis=1, keepdims=True) + eps
-    )
+    pts_normals = pts_normals / (np.linalg.norm(pts_normals, axis=1, keepdims=True) + eps)
 
     return pts_normals
 
@@ -562,9 +552,7 @@ def plot_contour(
 
     plt.scatter(pts[1:-1, 0], pts[1:-1, 1], markersize, color=col_pts[1:-1, :])
     plt.scatter(pts[0, 0], pts[0, 1], 4 * markersize, color=col_pts[0, :], marker="^")
-    plt.scatter(
-        pts[-1, 0], pts[-1, 1], 3 * markersize, color=col_pts[-1, :], marker="s"
-    )
+    plt.scatter(pts[-1, 0], pts[-1, 1], 3 * markersize, color=col_pts[-1, :], marker="s")
 
     plt.axis("off")
     plt.gca().set_aspect("equal")
@@ -687,9 +675,7 @@ def conn_events(nodes_curr, nodes_next, links):
     return events
 
 
-def bridge_contours(
-    opts_list, z_coords, thr_conn=1 / 3, greedy=False, sealed=True, debug=False
-):
+def bridge_contours(opts_list, z_coords, thr_conn=1 / 3, greedy=False, sealed=True, debug=False):
     pts = []
     simps = []
     offset = 0
@@ -706,14 +692,10 @@ def bridge_contours(
         lid_start = [representative_point(opts) for opts in opts_list[0]]
         lid_end = [representative_point(opts) for opts in opts_list[-1]]
         opts_list = [lid_start] + opts_list + [lid_end]
-        z_coords = np.hstack(
-            (2 * z_coords[0] - z_coords[1], z_coords, 2 * z_coords[-1] - z_coords[-2])
-        )
+        z_coords = np.hstack((2 * z_coords[0] - z_coords[1], z_coords, 2 * z_coords[-1] - z_coords[-2]))
         nodes_list = [nodes_list[0]] + nodes_list + [nodes_list[-1]]
         links_list = (
-            [[[node, node] for node in nodes_list[0]]]
-            + links_list
-            + [[[node, node] for node in nodes_list[-1]]]
+            [[[node, node] for node in nodes_list[0]]] + links_list + [[[node, node] for node in nodes_list[-1]]]
         )
 
     for i in tqdm(range(len(opts_list) - 1), desc="bridging contours"):
@@ -781,9 +763,7 @@ def bridge_contours(
             opts_1k, opts_2k, shift_1, shift_2 = phase_align_contours(opts_1k, opts_2k)
 
             opts_1k = np.hstack([opts_1k, np.full((opts_1k.shape[0], 1), z_coords[i])])
-            opts_2k = np.hstack(
-                [opts_2k, np.full((opts_2k.shape[0], 1), z_coords[i + 1])]
-            )
+            opts_2k = np.hstack([opts_2k, np.full((opts_2k.shape[0], 1), z_coords[i + 1])])
 
             if debug:
                 plt.subplot(2, 2, 3)
@@ -794,15 +774,11 @@ def bridge_contours(
             path, path_len = path_fun(opts_1k, opts_2k)
             _, simps_k = triangulate_path(path, opts_1k, opts_2k)
 
-            pts_k = np.vstack(
-                [np.roll(opts_1k, -shift_1, axis=0), np.roll(opts_2k, -shift_2, axis=0)]
-            )
+            pts_k = np.vstack([np.roll(opts_1k, -shift_1, axis=0), np.roll(opts_2k, -shift_2, axis=0)])
             mask_1 = simps_k < nn1
             mask_2 = simps_k >= nn1
             simps_k = simps_k.at[mask_1].set((simps_k[mask_1] - shift_1) % nn1)
-            simps_k = simps_k.at[mask_2].set(
-                nn1 + ((simps_k[mask_2] - nn1 - shift_2) % nn2)
-            )
+            simps_k = simps_k.at[mask_2].set(nn1 + ((simps_k[mask_2] - nn1 - shift_2) % nn2))
             simps_k = simps_k + offset
 
             pts.append(pts_k)
@@ -907,9 +883,7 @@ def phase_align_contours(opts1, opts2, alpha=0.5, sigma=2):
         opts2_shift = np.roll(opts2, shift, axis=0)
 
         corr = np.corrcoef(ang1, ang2_shift)[0, 1]
-        dist0 = (
-            np.sqrt(np.sum((opts1_shift[0, :] - opts2_shift[0, :]) ** 2)) / dist2_mean
-        )
+        dist0 = np.sqrt(np.sum((opts1_shift[0, :] - opts2_shift[0, :]) ** 2)) / dist2_mean
         cost = alpha * (1 - corr) + (1 - alpha) * dist0
 
         if cost < cost_hat:
@@ -1047,9 +1021,7 @@ def triangle_path_dp(opts1, opts2):
 
     path = jnp.zeros((max_path_len, 2), dtype=jnp.int32)
     init_state = (n1 - 1, n2 - 1, 0, path)
-    i_final, j_final, final_step, path = jax.lax.while_loop(
-        backtrack_cond, backtrack_body, init_state
-    )
+    i_final, j_final, final_step, path = jax.lax.while_loop(backtrack_cond, backtrack_body, init_state)
 
     path = path.at[final_step].set(jnp.array([0, 0]))
     path_length = final_step + 1
@@ -1525,9 +1497,7 @@ def vtkpoly2mesh(poly, ax2d=None):
         return pts, simps
 
 
-def nearest_neighbors(
-    ref_pts_list, mov_pts, ref_labs_list=None, mov_labs=None, bidir=False
-):
+def nearest_neighbors(ref_pts_list, mov_pts, ref_labs_list=None, mov_labs=None, bidir=False):
     use_labs = ref_labs_list is not None and mov_labs is not None
 
     ref_nn_pts = []
@@ -1573,9 +1543,7 @@ def nearest_neighbors(
 def boxplot(y, x, col=[0, 0, 1], w=0.5, lw=2):
     # whis = None
     whis = (0, 100)
-    bp = plt.boxplot(
-        y, positions=[x], widths=[w], whis=whis, showfliers=False, patch_artist=True
-    )
+    bp = plt.boxplot(y, positions=[x], widths=[w], whis=whis, showfliers=False, patch_artist=True)
     for a in bp.keys():
         plt.setp(bp[a], color=col)
     for a in bp["boxes"]:

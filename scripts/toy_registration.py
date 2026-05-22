@@ -18,6 +18,15 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
+import time
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+import polymorpheo.energy as energy
+import polymorpheo.register as register
+import polymorpheo.utils as utils
+
 # %%
 
 mov_file = REPO_ROOT / "imgs/mov_2.png"
@@ -96,9 +105,7 @@ plt.title("affine")
 niter = 20
 degree = 2
 
-reg_poly = register.reg_polynom(
-    niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir
-)
+reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir)
 
 t = time.time()
 moved_contour_quad = reg_poly.compute(ref_contour, moved_contour_aff)
@@ -116,9 +123,7 @@ plt.title("quadratic")
 niter = 20
 degree = 3
 
-reg_poly = register.reg_polynom(
-    niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir
-)
+reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir)
 
 t = time.time()
 moved_contour_cube = reg_poly.compute(ref_contour, moved_contour_aff)
@@ -196,13 +201,12 @@ aff_transfo.set_params(aff_lin, aff_trans)
 chain = [rig_transfo, aff_transfo] + [rd.polytransfo for rd in reg_defos]
 moved_pts_chain = transfo_ops.apply_transfo_chain(chain, mov_pts)
 
+import jax.numpy as jnp
 
-print(
-    "max diff rig:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_rig[0])))
-)
+print("max diff rig:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_rig[0]))))
 
 plt.figure()
-# utils.plot_contour(ref_contour, col=[1,0,0])
+utils.plot_contour(ref_contour, col=[1, 0, 0])
 utils.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0, 0, 1])
 utils.plot_contour(moved_contour_defo, col=[0, 1, 0])
 plt.title("chain (blue) vs sequential (green)")

@@ -9,19 +9,20 @@ import polymorpheo.utils as utils
 
 
 class bridge_contours:
-    def __init__(self, thr_conn=1 / 3, greedy=False, sealed=True):
+    def __init__(self, thr_conn=1/3, greedy=False, sealed=True):
         self.thr_conn = thr_conn
         self.greedy = greedy
         self.sealed = sealed
 
-    def compute(self, polylines):
+    def compute(self, polylines, z_coords=None):
         nslices = len(polylines)
         is_lab = polylines[0][3] is not None
         if not is_lab:
             labs = [1]
         else:
             labs = np.unique(np.concatenate([polyline[3] for polyline in polylines]))
-        z_coords = np.arange(nslices)
+        if z_coords is None:
+            z_coords = np.arange(nslices)
 
         if isinstance(self.thr_conn, (list, tuple, np.ndarray)):
             thr_conn = self.thr_conn
@@ -31,19 +32,14 @@ class bridge_contours:
         meshes = []
         for l in range(len(labs)):
             if is_lab:
-                polylines_l = [
-                    utils.extract_polyline(polyline, polyline[3] == l + 1)
-                    for polyline in polylines
-                ]
+                polylines_l = [utils.extract_polyline(polyline, polyline[3] == l + 1) for polyline in polylines]
             else:
                 polylines_l = polylines
             opts_list = []
 
             for i in range(nslices):
                 polyline_l = polylines_l[i]
-                opts = utils.contours2opts(
-                    np.array(polyline_l[0]), np.array(polyline_l[1])
-                )
+                opts = utils.contours2opts(np.array(polyline_l[0]), np.array(polyline_l[1]))
                 opts_list.append(opts)
 
             pts, simps = utils.bridge_contours(
@@ -190,15 +186,7 @@ class register_slices:
                 if self.transfo_type == "linear":
                     aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
                     aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(
-                        expm(
-                            (
-                                logm(aff_prev, disp=False)[0]
-                                + logm(aff_next, disp=False)[0]
-                            )
-                            / 2
-                        )
-                    )
+                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
 
@@ -213,9 +201,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(
-                        mov_pts, mov_pts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -241,15 +227,7 @@ class register_slices:
                 if self.transfo_type == "linear":
                     aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
                     aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(
-                        expm(
-                            (
-                                logm(aff_prev, disp=False)[0]
-                                + logm(aff_next, disp=False)[0]
-                            )
-                            / 2
-                        )
-                    )
+                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
 
@@ -264,9 +242,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(
-                        mov_pts, mov_pts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -281,15 +257,7 @@ class register_slices:
                 if self.transfo_type == "linear":
                     aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
                     aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(
-                        expm(
-                            (
-                                logm(aff_prev, disp=False)[0]
-                                + logm(aff_next, disp=False)[0]
-                            )
-                            / 2
-                        )
-                    )
+                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
 
@@ -304,9 +272,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(
-                        mov_pts, mov_pts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -330,29 +296,15 @@ class register_slices:
 
                 if self.transfo_type == "linear":
                     aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    aff_next, _ = (
-                        self.reg.compute(next_polyline, mov_polyline)
-                        if i < nslice - 1
-                        else (np.eye(3), None)
-                    )
-                    aff = np.real(
-                        expm(
-                            (
-                                logm(aff_prev, disp=False)[0]
-                                + logm(aff_next, disp=False)[0]
-                            )
-                            / 2
-                        )
-                    )
+                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.eye(3), None)
+                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
 
                 elif self.transfo_type == "polynomial":
                     moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
                     moved_polyline_next = (
-                        self.reg.compute(next_polyline, mov_polyline)
-                        if i < nslice - 1
-                        else mov_polyline
+                        self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline
                     )
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
@@ -366,9 +318,7 @@ class register_slices:
                         else (np.zeros_like(mov_pts), None, None)
                     )
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(
-                        mov_pts, mov_pts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -383,38 +333,16 @@ class register_slices:
                 mov_pts, mov_simps, _, mov_labs = mov_polyline
 
                 if self.transfo_type == "linear":
-                    aff_prev, _ = (
-                        self.reg.compute(prev_polyline, mov_polyline)
-                        if i > 0
-                        else (np.eye(3), None)
-                    )
-                    aff_next, _ = (
-                        self.reg.compute(next_polyline, mov_polyline)
-                        if i < nslice - 1
-                        else (np.eye(3), None)
-                    )
-                    aff = np.real(
-                        expm(
-                            (
-                                logm(aff_prev, disp=False)[0]
-                                + logm(aff_next, disp=False)[0]
-                            )
-                            / 2
-                        )
-                    )
+                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.eye(3), None)
+                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.eye(3), None)
+                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
                     lin, trans = utils.aff_dehmgn(aff)
                     moved_pts = mov_pts @ lin.T + trans
 
                 elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = (
-                        self.reg.compute(prev_polyline, mov_polyline)
-                        if i > 0
-                        else mov_polyline
-                    )
+                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else mov_polyline
                     moved_polyline_next = (
-                        self.reg.compute(next_polyline, mov_polyline)
-                        if i < nslice - 1
-                        else mov_polyline
+                        self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline
                     )
                     moved_pts_prev, _, _, _ = moved_polyline_prev
                     moved_pts_next, _, _, _ = moved_polyline_next
@@ -422,9 +350,7 @@ class register_slices:
 
                 elif self.transfo_type == "deformable":
                     theta_prev, _, _ = (
-                        self.reg.compute(prev_polyline, mov_polyline)
-                        if i > 0
-                        else (np.zeros_like(mov_pts), None, None)
+                        self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.zeros_like(mov_pts), None, None)
                     )
                     theta_next, _, _ = (
                         self.reg.compute(next_polyline, mov_polyline)
@@ -432,9 +358,7 @@ class register_slices:
                         else (np.zeros_like(mov_pts), None, None)
                     )
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(
-                        mov_pts, mov_pts, theta_lin=None, theta_trans=theta
-                    )
+                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     moved_pts = mov_pts + disp
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs

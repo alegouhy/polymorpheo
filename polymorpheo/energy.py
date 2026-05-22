@@ -51,9 +51,7 @@ class pointdist:
                     pts_dist += self.agg_fun(dist_nn)
                     if self.bidir:
                         dist_nn = jnp.min(dist, axis=1)
-                        dist_nn = robust_rho(
-                            dist_nn, alpha=self.alpha, scale=self.scale
-                        )
+                        dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)
                         pts_dist += self.agg_fun(dist_nn)
 
         return pts_dist
@@ -126,9 +124,7 @@ class alap:
         if self.neighborhoods is None:
             raise ValueError("Must call set_neighs() before compute_map()!")
 
-        alap_map = jax.vmap(self._vertex_alap, in_axes=(0, None, None))(
-            jnp.arange(len(pts)), disp, pts
-        )
+        alap_map = jax.vmap(self._vertex_alap, in_axes=(0, None, None))(jnp.arange(len(pts)), disp, pts)
 
         return alap_map
 
@@ -160,9 +156,7 @@ class alap:
         return jnp.where(n_neigh > 0, total_energy / n_neigh, 0.0)
 
 
-def energy_total_fn(
-    theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wreg, polytransfo
-):
+def energy_total_fn(theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wreg, polytransfo):
     # regularization on the smoothed field or on theta?
 
     mov_pts, mov_simps, _, mov_labs = mov_mesh
@@ -200,12 +194,8 @@ def robust_rho(x_sq, alpha, scale, eps=1e-9):
         return -jnp.expm1(-x_sq_scal / 2)
     else:
         beta = jnp.maximum(eps, jnp.abs(alpha - 2.0))
-        alpha_safe = jnp.where(
-            alpha == 0, eps, jnp.sign(alpha) * jnp.maximum(eps, jnp.abs(alpha))
-        )
-        return (beta / alpha_safe) * (
-            jnp.power(x_sq_scal / beta + 1.0, 0.5 * alpha) - 1.0
-        )
+        alpha_safe = jnp.where(alpha == 0, eps, jnp.sign(alpha) * jnp.maximum(eps, jnp.abs(alpha)))
+        return (beta / alpha_safe) * (jnp.power(x_sq_scal / beta + 1.0, 0.5 * alpha) - 1.0)
 
 
 def m_estimator(x_sq, est="l2", sigma=1.0):
@@ -240,8 +230,7 @@ def m_estimator(x_sq, est="l2", sigma=1.0):
 
     else:
         raise ValueError(
-            f"Unknown estimator: {est}. Choose from "
-            "'l1', 'l2', 'welsch', 'geman-mcclure', 'cauchy', 'tukey'"
+            f"Unknown estimator: {est}. Choose from 'l1', 'l2', 'welsch', 'geman-mcclure', 'cauchy', 'tukey'"
         )
 
     return dist
