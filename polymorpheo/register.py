@@ -8,6 +8,9 @@ import polymorpheo.energy as energy
 import polymorpheo.transfo as transfo_ops
 import polymorpheo.utils as utils
 
+from .log import get_logger
+
+logger = get_logger(__name__)
 
 # %%
 
@@ -138,6 +141,11 @@ class reg_linear:
         ref_labs_list = [mesh[3] for mesh in ref_mesh_list]
         mov_pts, mov_simps, _, mov_labs = mov_mesh
 
+        logger.info(
+            "Starting linear registration: niter=%s, transfo=%s",
+            self.niter,
+            self.opti_transfo_fun.__class__.__name__,
+        )
         if T0 is None:
             ref_pts = jnp.concatenate(ref_pts_list, axis=0)
             T, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
@@ -162,6 +170,9 @@ class reg_linear:
             if self.tol is not None:
                 delta = jnp.mean(jnp.sum((moved_pts - moved_pts_prev) ** 2, axis=1))
                 if delta < self.tol**2:
+                    logger.info(
+                        "Converged at iteration %d (delta=%f)", int(k), float(delta)
+                    )
                     break
 
             if self.plot:
@@ -172,6 +183,7 @@ class reg_linear:
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
                     plt.title(f"it: {k}", fontsize=7)
+                    logger.debug("Showing plot for iteration %d", k)
                     plt.show()
 
         return T, moved_mesh
@@ -224,6 +236,11 @@ class reg_polynom:
         else:
             moved_pts = mov_pts + disp0
 
+        logger.info(
+            "Starting polynomial registration: niter=%s, degree=%s",
+            self.niter,
+            self.opti_transfo_fun.__class__.__name__,
+        )
         for k in range(self.niter):
             ref_nn_pts, mov_nn_pts = utils.nearest_neighbors(
                 ref_pts_list, moved_pts, ref_labs_list, mov_labs, self.bidir
@@ -238,6 +255,9 @@ class reg_polynom:
             if self.tol is not None:
                 delta = jnp.mean(jnp.sum((moved_pts - moved_pts_prev) ** 2, axis=1))
                 if delta < self.tol**2:
+                    logger.info(
+                        "Converged at iteration %d (delta=%f)", int(k), float(delta)
+                    )
                     break
 
             if self.plot:
@@ -248,6 +268,7 @@ class reg_polynom:
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
                     plt.title(f"it: {k}", fontsize=7)
+                    logger.debug("Showing plot for iteration %d", k)
                     plt.show()
 
         return moved_mesh

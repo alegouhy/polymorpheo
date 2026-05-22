@@ -60,6 +60,10 @@ reg_rig = register.reg_linear(niter=niter, transfo=transfo, init=init, se=True, 
 
 t = time.time()
 rig, moved_contour_rig = reg_rig.compute(ref_contour, mov_contour)
+<<<<<<< HEAD
+
+=======
+>>>>>>> main
 print(f"rigid done in: {time.time()-t:.2f} s")
 
 plt.subplot(2,3,2)
@@ -123,7 +127,11 @@ plt.title('cubic')
 #%% non-rigid ICP
 
 niter = 50
+<<<<<<< HEAD
+lr = [1e-2, 1e-3, 1e-3]
+=======
 lr = [1e-2] # , 1e-3, 1e-3]
+>>>>>>> main
 wreg = [1e-1, 1e-2, 1e-2]
 int_steps = 16
 sigma = [1e-1, 1e-2, 1e-3]
@@ -134,6 +142,17 @@ regul_fun = energy.grad_disp(l_norm=2)
 moved_contour_defo = moved_contour_aff
 
 losses = []
+<<<<<<< HEAD
+t = time.time()
+for i in range(len(lr)):
+    
+    reg_defo = register.reg_deformable(niter=niter, fit_fun=fit_fun, regul_fun=regul_fun,
+                                       lr=lr[i], wreg=wreg[i], sigma=sigma[i], int_steps=int_steps,
+                                       tol=tol, plot=False)
+    
+    disp, moved_contour_defo, loss = reg_defo.compute(ref_contour, moved_contour_defo)
+    
+=======
 reg_defos = []
 t = time.time()
 for i in range(len(lr)):
@@ -144,6 +163,7 @@ for i in range(len(lr)):
 
     disp, moved_contour_defo, loss = reg_defo.compute(ref_contour, moved_contour_defo)
     reg_defos.append(reg_defo)
+>>>>>>> main
     losses.append(loss)
 
 print(f"deformable done in: {time.time()-t:.2f} s")
@@ -161,6 +181,9 @@ for i in range(len(lr)):
     plt.subplot(1,len(lr),i+1)
     plt.plot(losses[i])
     plt.suptitle('energy')
+<<<<<<< HEAD
+plt.show()
+=======
 plt.show()
 
 
@@ -193,3 +216,4 @@ plt.show()
 
 
 
+>>>>>>> main

@@ -1,3 +1,4 @@
+import logging
 import os
 
 os.environ["JAX_PLATFORMS"] = "cpu"
@@ -10,6 +11,9 @@ import numpy as np
 
 import polymorpheo as c2m
 import polymorpheo.energy as energy
+from polymorpheo.log import configure_logging
+
+configure_logging(level=logging.WARNING)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "reports"
@@ -18,6 +22,18 @@ REPORTS_DIR = REPO_ROOT / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
 datadir_path = str(files("polymorpheo.data").joinpath("sample_contours.npz"))
+
+io = c2m.io(
+    datadir=datadir_path.replace("/sample_contours.npz", ""),
+    names=["sample_contours"],
+    npts=10,
+    npts_min=5,
+    normalise=True,
+)
+
+
+polylines_raw = io.load()
+
 
 # spacing = np.array([0.1, 0.1, 1.25])
 spacing = np.array([1, 1, 12.5])
