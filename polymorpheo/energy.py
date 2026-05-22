@@ -161,16 +161,16 @@ class alap:
 
 
 def energy_total_fn(
-    theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wreg, kernel_fun
+    theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wreg, polytransfo
 ):
     # regularization on the smoothed field or on theta?
 
     mov_pts, mov_simps, _, mov_labs = mov_mesh
 
     # regul = regul_fun.compute(theta, mov_pts, mov_simps)
-    if kernel_fun.sigma is not None:
-        svf = kernel_fun.interp(mov_pts, cpts, theta_lin=None, theta_trans=theta)
-        disp = kernel_fun.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
+    if polytransfo.sigma is not None:
+        svf = polytransfo.interp(mov_pts, cpts, theta_lin=None, theta_trans=theta)
+        disp = polytransfo.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
     else:
         svf = theta
         disp = theta
