@@ -1,3 +1,5 @@
+import copy
+
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -351,8 +353,9 @@ class reg_deformable:
         disp = self.polytransfo.compute(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
         moved_mesh = utils.denormalise_meshes([(mov_pts_n + disp, mov_simps, None, mov_labs)], mu, amp)[0]
 
-        self.polytransfo.sigma = self.sigma * amp
-        self.polytransfo.set_params(cpts * amp + mu, theta_trans=theta * amp)
+        self.polytransfo_out = copy.deepcopy(self.polytransfo)
+        self.polytransfo_out.sigma = self.sigma * amp
+        self.polytransfo_out.set_params(cpts * amp + mu, theta_trans=theta * amp)
 
         return theta * amp, moved_mesh, losses
 
