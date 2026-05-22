@@ -46,7 +46,18 @@ niter = 5
 
 method = 4  # serial registration method
 
-mesher = c2m.bridge_contours(thr_conn=thr_conn, sealed=True)
+io = c2m.io(
+    datadir=datadir_path.replace("/sample_contours.npz", ""),
+    names=["sample_contours"],
+    npts=10,
+    npts_min=5,
+    normalise=True,
+    spacing=spacing,
+)
+
+polylines_raw = io.load()
+
+mesher = c2m.bridge_contours(thr_conn=thr_conn, sealed=True, z_spacing=spacing[2])
 
 
 transfo = "rigid"

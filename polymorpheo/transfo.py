@@ -9,7 +9,7 @@ from scipy.stats.qmc import Sobol
 import polymorpheo.utils as utils
 
 
-class kernel_disp:
+class polytransfo:
     """
     should investigate: https://github.com/dodgebc/jaxkd
     """
@@ -20,12 +20,29 @@ class kernel_disp:
         self.int_step_max = int_steps if int_step_max is None else int_step_max
         self.eps = eps
         self.rk = rk
+        self.cpts = None
+        self.theta_trans = None
+        self.theta_lin = None
 
-    def compute(self, pts, cpts, theta_lin=None, theta_trans=None):
-        # pts (npts, ndims):                points where we want to evaluate the disp.
-        # cpts (ncpts, ndims):              points where theta is known.
-        # theta_trans (ncpts, ndims):       transfo params (translation part).
-        # theta_lin (ncpts, ndims, ndims):  transfo params (linear part).
+    def set_params(self, cpts, theta_trans=None, theta_lin=None):
+        self.cpts = cpts
+        self.theta_trans = theta_trans
+        self.theta_lin = theta_lin
+
+    def compute(self, pts, cpts=None, theta_lin=None, theta_trans=None):
+        # pts (npts, ndims):                query points where we want to evaluate the disp.
+        # cpts (ncpts, ndims):              control points where theta is known.
+        # theta_trans (ncpts, ndims):       transfo params (translation part) at cpts.
+        # theta_lin (ncpts, ndims, ndims):  transfo params (linear part) at cpts.
+        
+        if cpts is None:        cpts = self.cpts
+        if theta_trans is None: theta_trans = self.theta_trans
+        if theta_lin is None:   theta_lin = self.theta_lin
+
+        if cpts is None:
+            raise ValueError("cpts must be provided either via compute() or set_params().")
+        if theta_trans is None and theta_lin is None:
+            raise ValueError("At least one of theta_trans or theta_lin must be provided via compute() or set_params().")
 
         if self.int_steps == 0:
             disp = self.interp(pts, cpts, theta_lin, theta_trans)
@@ -35,6 +52,7 @@ class kernel_disp:
         return disp
 
     def lie_exp(self, pts, cpts, theta_lin, theta_trans):
+        
         dt = 1.0 / self.int_steps
         d = jnp.zeros_like(pts)
 
@@ -60,6 +78,7 @@ class kernel_disp:
         return d
 
     def interp(self, pts, cpts, theta_lin, theta_trans):
+        
         sqdist = utils.pts_dist(pts, cpts)  # (npts, ncpts)
         weight = jnp.exp(-sqdist / (2 * self.sigma**2))
 
@@ -78,6 +97,7 @@ class kernel_disp:
         return disp
 
     def sigma_silverman(self, pts):
+        
         iqr = jnp.mean(
             jnp.quantile(pts, (3 / 4), axis=0) - jnp.quantile(pts, (1 / 4), axis=0)
         )
@@ -87,68 +107,47 @@ class kernel_disp:
         return sigma
 
 
-class kernel_disp_shit:
-    def __init__(self, sigma, eps=1e-14, int_steps=None):
-        self.sigma = sigma
-        self.eps = eps
+class affine:
 
-    def compute(self, pts, cpts, theta_lin=None, theta_trans=None):
-        # pts (npts, ndims):                points where we want to evaluate the disp.
-        # cpts (ncpts, ndims):              points where theta is known.
-        # theta_trans (ncpts, ndims):       transfo params (translation part).
-        # theta_lin (ncpts, ndims, ndims):  transfo params (linear part).
+    def __init__(self):
+        self.lin = None
+        self.trans = None
+        
+    def set_params(self, lin, trans):
+        self.lin = lin
+        self.trans = trans
 
-        disp = self.pointwise_exp(pts, cpts, theta_lin, theta_trans)
+    def compute(self, pts, lin=None, trans=None):
+        
+        if lin is None: lin = self.lin
+        if trans is None: trans = self.trans
+        
+        if lin is None: 
+            raise ValueError("lin must be provided either via compute() or set_params().")
+        if trans is None: 
+            raise ValueError("trans must be provided either via compute() or set_params().")
 
-        return disp
+        moved_pts = pts @ lin.T + trans
+        
+        return moved_pts - pts
 
-    def pointwise_exp(self, pts, cpts, theta_lin, theta_trans):
-        # PolyPose's fast approximation: directly apply exp of weighted average
-        # of log-transforms pointwise — no ODE integration.
 
-        npts, ndims = pts.shape
-
-        # Compute Gaussian weights
-        sqdist = utils.pts_dist(pts, cpts)  # (npts, ncpts)
-        weight = jnp.exp(-sqdist / (2 * self.sigma**2))
-        weight = weight / (
-            jnp.sum(weight, axis=1)[..., None] + self.eps
-        )  # (npts, ncpts)
-
-        # Weighted average of log-transform matrices at each point x
-        avg_lin = jnp.einsum("ij,jkl->ikl", weight, theta_lin)  # (npts, ndims, ndims)
-        avg_trans = weight @ theta_trans  # (npts, ndims)
-
-        # Assemble (ndims+1) x (ndims+1) log-transform matrices: [[L, t], [0, 0]]
-        top = jnp.concatenate(
-            [avg_lin, avg_trans[..., None]], axis=-1
-        )  # (npts, ndims, ndims+1)
-        bottom = jnp.zeros((npts, 1, ndims + 1))  # (npts, 1, ndims+1)
-        M = jnp.concatenate([top, bottom], axis=1)  # (npts, ndims+1, ndims+1)
-
-        # Apply matrix exponential pointwise — this is the fast approximation,
-        # NOT equivalent to integrating dφ/dt = V(φ(t)) as in proper LEPT.
-        T = jax.vmap(jax.scipy.linalg.expm)(M)  # (npts, ndims+1, ndims+1)
-
-        # Apply T to pts in homogeneous coordinates
-        pts_hom = jnp.concatenate(
-            [pts, jnp.ones((npts, 1))], axis=-1
-        )  # (npts, ndims+1)
-        pts_new = jnp.einsum("ijk,ik->ij", T, pts_hom)[:, :ndims]  # (npts, ndims)
-
-        return pts_new - pts
-
-    def sigma_silverman(self, pts):
-        iqr = jnp.mean(
-            jnp.quantile(pts, (3 / 4), axis=0) - jnp.quantile(pts, (1 / 4), axis=0)
-        )
-        std = jnp.mean(jnp.std(pts, axis=0))
-        sigma = 0.9 * jnp.min(jnp.stack((std, iqr / 1.349))) * pts.shape[0] ** (-1 / 5)
-
-        return sigma
+def apply_transfo_chain(transfo_list, pts):
+    # Evaluates transfo_list[-1] o ... o transfo_list[0].
+    #  - transfo_list:      list of polytransfo or affine instances with parameters set via set_params().
+    #  - pts (npts, ndims): points at which to evaluate the composed transformation.
+    # Returns the final moved points (npts, ndims).
+    
+    pts_moved = pts
+    for transfo in transfo_list:
+        disp = transfo.compute(pts_moved)
+        pts_moved = pts_moved + disp
+        
+    return pts_moved
 
 
 class init_transfo:
+    
     def __init__(self, init="identity"):
         """
         init: init: 'identity', 'centroids', 'similarity', 'ellipsoid'
@@ -186,6 +185,7 @@ class init_transfo:
 
 
 class opti_linear_transfo:
+    
     def __init__(self, transfo, se=True):  #  gamma=1e-5
         """
         transfo: 'rigid' or 'affine'
@@ -195,9 +195,8 @@ class opti_linear_transfo:
         self.se = se
         # self.gamma = gamma
 
-    def fit(
-        self, ref_pts, mov_pts, ref_pts_mu=None, mov_pts_mu=None, weights=None, eps=1e-9
-    ):
+    def fit(self, ref_pts, mov_pts, 
+                  ref_pts_mu=None, mov_pts_mu=None, weights=None, eps=1e-9):
         """
         Assumes that ref_pts and mov_pts are paired sets of points.
         """
@@ -250,6 +249,7 @@ class opti_linear_transfo:
 
 
 class opti_polynom_transfo:
+    
     def __init__(self, degree, se=True):
         self.degree = degree
 
@@ -296,118 +296,60 @@ class opti_polynom_transfo:
         return X @ coeffs + self.ref_pts_mu
 
 
-def random_locAff(
-    ndims,
-    ncpts=300,
-    seed=None,
-    liealg=True,
-    so_corner=[0],
-    ne_corner=[1],
-    bound_scal=1.1,
-    trans_bounds=0.01,
-    rot_bounds=np.pi / 2,
-    scalDir_bounds=np.pi / 4,
-    scal_bounds=3,
-):
-    if len(so_corner) == 1:
-        so_corner *= ndims
-    if len(ne_corner) == 1:
-        ne_corner *= ndims
+def random_locAff(ndims, ncpts=300, seed=None, liealg=True,
+                  so_corner=[0], ne_corner=[1], bound_scal=1.1,
+                  trans_bounds=0.01, rot_bounds=np.pi/2, scalDir_bounds=np.pi/4, scal_bounds=3):
+              
+    if len(so_corner) == 1: so_corner *= ndims 
+    if len(ne_corner) == 1: ne_corner *= ndims 
     so_corner = np.array(so_corner)
     ne_corner = np.array(ne_corner)
-
-    center = (ne_corner + so_corner) / 2
+    
+    center = (ne_corner + so_corner) / 2 
     ne_corner = np.expand_dims(bound_scal * (ne_corner - center) + center, axis=-1)
     so_corner = np.expand_dims(bound_scal * (so_corner - center) + center, axis=-1)
-
+    
     r = Sobol(ndims, seed=seed).random(ncpts)
-    cpts = np.expand_dims(r * ne_corner.T + (1 - r) * so_corner.T, axis=-1)
-
+    cpts = np.expand_dims(r*ne_corner.T + (1-r)*so_corner.T, axis=-1)
+    
     if ndims == 2:
-        rot_angles = 2 * rot_bounds * (np.random.rand(ncpts) - 0.5)
-        rot = np.stack(
-            [
-                np.stack([np.zeros(ncpts), rot_angles], axis=1),
-                np.stack([-rot_angles, np.zeros(ncpts)], axis=1),
-            ],
-            axis=2,
-        )
-
-        scalDir_angles = 2 * scalDir_bounds * (np.random.rand(ncpts) - 0.5)
-        scalDir = np.stack(
-            [
-                np.stack([np.zeros(ncpts), scalDir_angles], axis=1),
-                np.stack([-scalDir_angles, np.zeros(ncpts)], axis=1),
-            ],
-            axis=2,
-        )
-
+        rot_angles = 2*rot_bounds*(np.random.rand(ncpts)-0.5)
+        rot = np.stack([np.stack([ np.zeros(ncpts), rot_angles ], axis=1),
+                        np.stack([-rot_angles , np.zeros(ncpts)], axis=1)], axis=2)   
+    
+        scalDir_angles = 2*scalDir_bounds*(np.random.rand(ncpts)-0.5)
+        scalDir = np.stack([np.stack([ np.zeros(ncpts)   , scalDir_angles], axis=1),
+                            np.stack([-scalDir_angles, np.zeros(ncpts)   ], axis=1)], axis=2)   
+        
     elif ndims == 3:
-        rot_angles = 2 * rot_bounds * (np.random.rand(ncpts, 3) - 0.5)
-        rot = np.stack(
-            [
-                np.stack(
-                    [np.zeros(ncpts), rot_angles[..., 2], -rot_angles[..., 1]], axis=1
-                ),
-                np.stack(
-                    [-rot_angles[..., 2], np.zeros(ncpts), rot_angles[..., 0]], axis=1
-                ),
-                np.stack(
-                    [rot_angles[..., 1], -rot_angles[..., 0], np.zeros(ncpts)], axis=1
-                ),
-            ],
-            axis=2,
-        )
-
-        scalDir_angles = 2 * scalDir_bounds * (np.random.rand(ncpts, 3) - 0.5)
-        scalDir = np.stack(
-            [
-                np.stack(
-                    [np.zeros(ncpts), scalDir_angles[..., 2], -scalDir_angles[..., 1]],
-                    axis=1,
-                ),
-                np.stack(
-                    [-scalDir_angles[..., 2], np.zeros(ncpts), scalDir_angles[..., 0]],
-                    axis=1,
-                ),
-                np.stack(
-                    [scalDir_angles[..., 1], -scalDir_angles[..., 0], np.zeros(ncpts)],
-                    axis=1,
-                ),
-            ],
-            axis=2,
-        )
-
+        rot_angles = 2*rot_bounds*(np.random.rand(ncpts,3)-0.5) 
+        rot = np.stack([np.stack([ np.zeros(ncpts),  rot_angles[...,2], -rot_angles[...,1]], axis=1),
+                        np.stack([-rot_angles[...,2],  np.zeros(ncpts),  rot_angles[...,0]], axis=1),
+                        np.stack([ rot_angles[...,1], -rot_angles[...,0],  np.zeros(ncpts)], axis=1)], axis=2)
+    
+        scalDir_angles = 2*scalDir_bounds*(np.random.rand(ncpts,3)-0.5) 
+        scalDir = np.stack([np.stack([ np.zeros(ncpts)    ,  scalDir_angles[...,2], -scalDir_angles[...,1]], axis=1),
+                            np.stack([-scalDir_angles[...,2],  np.zeros(ncpts)    ,  scalDir_angles[...,0]], axis=1),
+                            np.stack([ scalDir_angles[...,1], -scalDir_angles[...,0],  np.zeros(ncpts)    ], axis=1)], axis=2)
+    
     rot = expm(rot)
     scalDir = expm(scalDir)
-
-    scal_factors = np.exp(
-        2 * np.log(scal_bounds) * (np.random.rand(ncpts, ndims, 1) - 0.5)
-    )
+    
+    scal_factors = np.exp(2*np.log(scal_bounds)*(np.random.rand(ncpts, ndims, 1)-0.5))
     scal = np.eye(ndims) * scal_factors
-
-    mats = np.matmul(
-        rot, np.matmul(scalDir, np.matmul(scal, np.transpose(scalDir, [0, 2, 1])))
-    )
-    trans = 2 * trans_bounds * (np.random.rand(ncpts, ndims, 1) - 0.5)
+    
+    mats = np.matmul(rot,np.matmul(scalDir,np.matmul(scal,np.transpose(scalDir, [0,2,1]))))
+    trans = 2*trans_bounds*(np.random.rand(ncpts,ndims,1)-0.5)
     trans = np.matmul(mats, -cpts) + trans + cpts
-
+    
     if not liealg:
-        return cpts[..., 0], mats, trans[..., 0]
-
+        return cpts[..., 0], mats, trans[...,0]
+    
     affs = np.concatenate((mats, trans), axis=2)
-    affs = np.concatenate(
-        (
-            affs,
-            np.concatenate(
-                (np.zeros((ncpts, 1, ndims)), np.ones((ncpts, 1, 1))), axis=2
-            ),
-        ),
-        axis=1,
-    )
-
-    log_affs = np.stack([logm(affs[i, ...]) for i in range(ncpts)], axis=0)
+    affs = np.concatenate((affs, np.concatenate((np.zeros((ncpts,1,ndims)), np.ones((ncpts,1,1))), axis=2)), axis=1)
+    
+    log_affs = np.stack([logm(affs[i,...]) for i in range(ncpts)], axis=0)
     log_mats = log_affs[:, :ndims, :ndims]
     log_trans = log_affs[:, :ndims, ndims]
-
+    
     return cpts[..., 0], log_mats.real, log_trans.real
