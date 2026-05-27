@@ -45,10 +45,13 @@ io = polymorpheo.io(
     npts_min=npts_min,
 )
 
-polylines_raw, z_coords = io.load()
-
 mesher = polymorpheo.bridge_contours(thr_conn=thr_conn, sealed=True)
 
+# %%
+
+polylines_raw, z_coords = io.load()
+meshes_raw = mesher.compute(polylines_raw, z_coords)
+io.save(meshes_raw, REPORTS_DIR, suffix="raw")
 
 transfo_type = "rigid"
 print("method " + str(method) + ", " + transfo_type)
@@ -123,3 +126,28 @@ for i in range(len(polylines_raw)):
 meshes_chain = mesher.compute(polylines_chain, z_coords)
 io.save(meshes_chain, REPORTS_DIR, suffix="chain_met-" + str(method))
 print("Saved chain meshes in " + str(REPORTS_DIR))
+
+#%% test invert transfo
+
+for i in range(len(polylines_raw)):
+    q = jnp.array(polylines_raw[i][0])
+    chain = transfos_rig[i] + transfos_aff[i] + transfos_defo[i]
+
+    forward = transfo_ops.apply_transfo_chain(chain, q)
+    back    = transfo_ops.apply_transfo_chain(chain, forward, invert=True)
+
+    err = float(jnp.max(jnp.abs(back - q)))
+    print(f"slice {i:3d}: err_inv={err:.2e}")
+
+
+polylines_inv = []
+for i in range(len(polylines_defo)):
+    q = jnp.array(polylines_defo[i][0])
+    chain = transfos_rig[i] + transfos_aff[i] + transfos_defo[i]
+    back = transfo_ops.apply_transfo_chain(chain, q, invert=True)
+    _, simps, _, labs = polylines_defo[i]
+    polylines_inv.append((np.array(back), simps, None, labs))
+
+meshes_inv = mesher.compute(polylines_inv, z_coords)
+io.save(meshes_inv, REPORTS_DIR, suffix="inv_met-" + str(method))
+print("Saved inverse meshes in " + str(REPORTS_DIR))

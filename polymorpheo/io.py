@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 
 
 class io:
+
     def __init__(self, datadir, names, spacing=None, npts=None, npts_min=1):
         self.npts = npts
         self.npts_min = npts_min

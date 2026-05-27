@@ -107,6 +107,12 @@ class polytransfo:
 
         return sigma
 
+    def invert(self):
+        if self.theta_trans is not None:
+            self.theta_trans = -self.theta_trans
+        if self.theta_lin is not None:
+            self.theta_lin = -self.theta_lin
+
 
 class affine:
     def __init__(self):
@@ -133,17 +139,28 @@ class affine:
 
         return moved_pts - pts
 
+    def invert(self):
+        lin_inv = jnp.linalg.inv(self.lin)
+        self.trans = -lin_inv @ self.trans
+        self.lin = lin_inv
 
-def apply_transfo_chain(transfo_list, pts):
+
+def apply_transfo_chain(transfo_list, pts, invert=False):
     # Evaluates transfo_list[-1] o ... o transfo_list[0].
+    # With invert=True, evaluates the inverse chain (reversed order, each transfo inverted then restored).
     #  - transfo_list:      list of polytransfo or affine instances with parameters set via set_params().
     #  - pts (npts, ndims): points at which to evaluate the composed transformation.
     # Returns the final moved points (npts, ndims).
 
     pts_moved = pts
-    for transfo in transfo_list:
-        disp = transfo.compute(pts_moved)
-        pts_moved = pts_moved + disp
+    if invert:
+        for transfo in reversed(transfo_list):
+            transfo.invert()
+            pts_moved = pts_moved + transfo.compute(pts_moved)
+            transfo.invert()
+    else:
+        for transfo in transfo_list:
+            pts_moved = pts_moved + transfo.compute(pts_moved)
 
     return pts_moved
 
