@@ -80,7 +80,7 @@ wreg = 5e-1
 int_steps = 16
 sigma = 1e-1
 icp_niter = 50
-fit_fun = energy.pointdist(agg="mean", bidir=bidir)
+fit_fun = energy.point2point(agg="mean", bidir=bidir)
 # regul_fun = energy.alap(transfo='similarity', normtype='l2')
 regul_fun = energy.grad_disp(l_norm=2)
 reg = polymorpheo.register_slices(

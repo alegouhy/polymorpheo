@@ -151,7 +151,7 @@ class reg_linear:
         )
         if T0 is None:
             ref_pts = jnp.concatenate(ref_pts_list, axis=0)
-            T, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
+            T, moved_pts = self.init_transfo.transform(ref_pts, mov_pts)
         else:
             T = T0
             A, t = utils.aff_dehmgn(T)
@@ -235,7 +235,7 @@ class reg_polynom:
 
         if disp0 is None:
             ref_pts = jnp.concatenate(ref_pts_list, axis=0)
-            _, moved_pts = self.init_transfo.compute(ref_pts, mov_pts)
+            _, moved_pts = self.init_transfo.transform(ref_pts, mov_pts)
         else:
             moved_pts = mov_pts + disp0
 
@@ -350,8 +350,8 @@ class reg_deformable:
         opt_state = self.optimizer.init(theta0)
         theta, losses = self.opti_loop(theta0, opt_state, cpts, mov_mesh_n, ref_mesh_list)
 
-        disp = self.polytransfo.compute(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
-        moved_mesh = utils.denormalise_meshes([(mov_pts_n + disp, mov_simps, None, mov_labs)], mu, amp)[0]
+        moved_pts_n = self.polytransfo.transform(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
+        moved_mesh = utils.denormalise_meshes([(moved_pts_n, mov_simps, None, mov_labs)], mu, amp)[0]
 
         self.polytransfo_out = copy.deepcopy(self.polytransfo)
         self.polytransfo_out.sigma = self.sigma * amp
@@ -425,8 +425,8 @@ class reg_deformable:
                         break
 
                 if k % self.plot == 0:
-                    disp = self.polytransfo.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
-                    moved_mesh_plot = (mov_pts + disp, mov_simps, None, mov_labs)
+                    moved_pts_plot = self.polytransfo.transform(mov_pts, cpts, theta_lin=None, theta_trans=theta)
+                    moved_mesh_plot = (moved_pts_plot, mov_simps, None, mov_labs)
                     for ref_m in ref_mesh_list:
                         utils.plot_contour(ref_m, col=[1, 0, 0])
                     utils.plot_contour(moved_mesh_plot, col=[0, 0, 1])

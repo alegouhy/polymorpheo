@@ -223,8 +223,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    moved_pts = mov_pts + disp
+                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     transfos[i].append(self._deformable_transfo())
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -268,8 +267,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    moved_pts = mov_pts + disp
+                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     transfos[i].append(self._deformable_transfo())
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -300,8 +298,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    moved_pts = mov_pts + disp
+                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     transfos[i].append(self._deformable_transfo())
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -344,8 +341,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    moved_pts = mov_pts + disp
+                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     transfos[i].append(self._deformable_transfo())
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs
@@ -378,8 +374,7 @@ class register_slices:
                     theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.zeros_like(mov_pts), None, None)
                     theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
                     theta = (theta_prev + theta_next) / 2
-                    disp = self.reg.polytransfo.compute(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    moved_pts = mov_pts + disp
+                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
                     transfos[i].append(self._deformable_transfo())
 
                 moved_polyline = moved_pts, mov_simps, None, mov_labs

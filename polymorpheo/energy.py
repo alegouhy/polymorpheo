@@ -5,7 +5,7 @@ import polymorpheo.transfo as transfo_ops
 import polymorpheo.utils as utils
 
 
-class pointdist:
+class point2point:
     def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
         self.alpha = alpha
         self.scale = scale
@@ -15,7 +15,7 @@ class pointdist:
         elif agg == "mean":
             self.agg_fun = jnp.mean
 
-    def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None):
+    def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None, ref_normals=None):
         ref_pts_list = [ref_pts] if hasattr(ref_pts, "shape") else ref_pts
         ref_labs_list = [ref_labs] if hasattr(ref_pts, "shape") else ref_labs
         use_labs = (ref_labs_list is not None) and (mov_labs is not None)
@@ -55,6 +55,38 @@ class pointdist:
                         pts_dist += self.agg_fun(dist_nn)
 
         return pts_dist
+
+
+class point2plane:
+    def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
+        self.alpha = alpha
+        self.scale = scale
+        self.bidir = bidir
+        if agg == "max":
+            self.agg_fun = jnp.max
+        elif agg == "mean":
+            self.agg_fun = jnp.mean
+
+    def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None, ref_normals=None):
+        dist = ref_pts[:, None, :] - mov_pts[None, :, :]   # (nref, nmov, 3)
+        sq_dist = jnp.sum(dist**2, axis=-1)                # (nref, nmov)
+
+        # forward: each moving point → its nearest reference point
+        nn_idx = jnp.argmin(sq_dist, axis=0)               # (nmov,)
+        if ref_normals is not None:
+            diff = mov_pts - ref_pts[nn_idx]                # (nmov, 3)
+            proj = jnp.sum(diff * ref_normals[nn_idx], axis=-1) ** 2
+        else:
+            proj = jnp.min(sq_dist, axis=0)
+        proj = robust_rho(proj, alpha=self.alpha, scale=self.scale)
+        total = self.agg_fun(proj)
+
+        if self.bidir:
+            # backward: each reference point → nearest moving point (point-to-point)
+            back = robust_rho(jnp.min(sq_dist, axis=1), alpha=self.alpha, scale=self.scale)
+            total = total + self.agg_fun(back)
+
+        return total
 
 
 class grad_disp:
@@ -164,19 +196,18 @@ def energy_total_fn(theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wr
     # regul = regul_fun.compute(theta, mov_pts, mov_simps)
     if polytransfo.sigma is not None:
         svf = polytransfo.interp(mov_pts, cpts, theta_lin=None, theta_trans=theta)
-        disp = polytransfo.compute(mov_pts, cpts, theta_lin=None, theta_trans=theta)
+        moved_pts = polytransfo.transform(mov_pts, cpts, theta_lin=None, theta_trans=theta)
     else:
         svf = theta
-        disp = theta
+        moved_pts = mov_pts + theta
 
     regul = regul_fun.compute(svf, mov_pts, mov_simps)
 
-    moved_pts = mov_pts + disp
 
     fit = 0.0
     for ref_mesh in ref_mesh_list:
         ref_pts, ref_simps, ref_normals, ref_labs = ref_mesh
-        fit += fit_fun.compute(ref_pts, moved_pts)
+        fit += fit_fun.compute(ref_pts, moved_pts, ref_normals=ref_normals)
 
     return fit + wreg * regul
 

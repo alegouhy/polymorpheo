@@ -143,7 +143,7 @@ int_steps = 16
 sigma = [1e-1, 1e-2, 1e-3]
 tol = 1e-6
 
-fit_fun = energy.pointdist(agg="mean")
+fit_fun = energy.point2point(agg="mean")
 regul_fun = energy.grad_disp(l_norm=2)
 moved_contour_defo = moved_contour_aff
 

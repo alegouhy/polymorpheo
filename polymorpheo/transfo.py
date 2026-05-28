@@ -29,7 +29,7 @@ class polytransfo:
         self.theta_trans = theta_trans
         self.theta_lin = theta_lin
 
-    def compute(self, pts, cpts=None, theta_lin=None, theta_trans=None):
+    def transform(self, pts, cpts=None, theta_lin=None, theta_trans=None):
         # pts (npts, ndims):                query points where we want to evaluate the disp.
         # cpts (ncpts, ndims):              control points where theta is known.
         # theta_trans (ncpts, ndims):       transfo params (translation part) at cpts.
@@ -43,16 +43,48 @@ class polytransfo:
             theta_lin = self.theta_lin
 
         if cpts is None:
-            raise ValueError("cpts must be provided either via compute() or set_params().")
+            raise ValueError("cpts must be provided either via transform() or set_params().")
         if theta_trans is None and theta_lin is None:
-            raise ValueError("At least one of theta_trans or theta_lin must be provided via compute() or set_params().")
+            raise ValueError("At least one of theta_trans or theta_lin must be provided via transform() or set_params().")
 
         if self.int_steps == 0:
             disp = self.interp(pts, cpts, theta_lin, theta_trans)
         else:
             disp = self.lie_exp(pts, cpts, theta_lin, theta_trans)
 
-        return disp
+        return pts + disp
+
+    def jacobian(self, pts, cpts=None, theta_lin=None, theta_trans=None):
+        # Returns the Jacobian of T(x) = x + d(x) at each point in pts.
+        # Output shape: (npts, ndims, ndims), where jac[i, k, l] = ∂T_k(x_i)/∂x_l
+
+        if cpts is None:
+            cpts = self.cpts
+        if theta_trans is None:
+            theta_trans = self.theta_trans
+        if theta_lin is None:
+            theta_lin = self.theta_lin
+
+        if cpts is None:
+            raise ValueError("cpts must be provided either via jacobian() or set_params().")
+        if theta_trans is None and theta_lin is None:
+            raise ValueError("At least one of theta_trans or theta_lin must be provided via jacobian() or set_params().")
+
+        def _transform_single(pt):
+            return self.transform(pt[None], cpts, theta_lin, theta_trans)[0]
+
+        return jax.vmap(jax.jacobian(_transform_single))(pts)
+
+    def transform_ellipsoids(self, centers, covs, cpts=None, theta_lin=None, theta_trans=None, orientation_only=False):
+        # centers (n, ndims):         ellipsoid centers
+        # covs    (n, ndims, ndims):  covariance matrices (symmetric positive definite)
+        # orientation_only:           if True, use PPD reorientation
+        # Returns new_centers (n, ndims), new_covs (n, ndims, ndims)
+
+        new_centers = self.transform(centers, cpts, theta_lin, theta_trans)
+        jac = self.jacobian(centers, cpts, theta_lin, theta_trans)  # (n, ndims, ndims)
+
+        return new_centers, utils.transform_ellipsoids(jac, covs, orientation_only)
 
     def lie_exp(self, pts, cpts, theta_lin, theta_trans):
 
@@ -123,7 +155,7 @@ class affine:
         self.lin = lin
         self.trans = trans
 
-    def compute(self, pts, lin=None, trans=None):
+    def transform(self, pts, lin=None, trans=None):
 
         if lin is None:
             lin = self.lin
@@ -131,13 +163,36 @@ class affine:
             trans = self.trans
 
         if lin is None:
-            raise ValueError("lin must be provided either via compute() or set_params().")
+            raise ValueError("lin must be provided either via transform() or set_params().")
         if trans is None:
-            raise ValueError("trans must be provided either via compute() or set_params().")
+            raise ValueError("trans must be provided either via transform() or set_params().")
 
-        moved_pts = pts @ lin.T + trans
+        return pts @ lin.T + trans
 
-        return moved_pts - pts
+    def jacobian(self, pts, lin=None, trans=None):
+        # Returns the Jacobian of T(x) = lin x + trans at each point in pts.
+        # For an affine map the Jacobian is constant (= lin), broadcast to (npts, ndims, ndims).
+
+        if lin is None:
+            lin = self.lin
+
+        return jnp.broadcast_to(lin[None], (len(pts), *lin.shape))
+
+    def transform_ellipsoids(self, centers, covs, lin=None, trans=None, orientation_only=False):
+        # centers (n, ndims):         ellipsoid centers
+        # covs    (n, ndims, ndims):  covariance matrices (symmetric positive definite)
+        # orientation_only:           if True, use PPD reorientation
+        # Returns new_centers (n, ndims), new_covs (n, ndims, ndims)
+
+        if lin is None:
+            lin = self.lin
+        if trans is None:
+            trans = self.trans
+
+        new_centers = self.transform(centers, lin, trans)
+        jac = self.jacobian(centers, lin)
+
+        return new_centers, utils.transform_ellipsoids(jac, covs, orientation_only)
 
     def invert(self):
         lin_inv = jnp.linalg.inv(self.lin)
@@ -156,11 +211,11 @@ def apply_transfo_chain(transfo_list, pts, invert=False):
     if invert:
         for transfo in reversed(transfo_list):
             transfo.invert()
-            pts_moved = pts_moved + transfo.compute(pts_moved)
+            pts_moved = transfo.transform(pts_moved)
             transfo.invert()
     else:
         for transfo in transfo_list:
-            pts_moved = pts_moved + transfo.compute(pts_moved)
+            pts_moved = transfo.transform(pts_moved)
 
     return pts_moved
 
@@ -173,7 +228,7 @@ class init_transfo:
 
         self.init = init
 
-    def compute(self, ref_pts, mov_pts):
+    def transform(self, ref_pts, mov_pts):
         # init: 'identity', 'centroids', 'similarity', 'ellipsoid'
 
         ndims = ref_pts.shape[1]

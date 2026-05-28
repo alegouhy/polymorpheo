@@ -236,6 +236,25 @@ def pts_dist(pts1, pts2, l_norm=2):
 pts_dist = jax.jit(pts_dist, static_argnames=("l_norm",))
 
 
+def transform_ellipsoids(jac, covs, orientation_only=False):
+    # Transform a batch of ellipsoids (covariance matrices) by a batch of Jacobians.
+    # jac  (n, ndims, ndims): Jacobian of the transformation at each ellipsoid center.
+    # covs (n, ndims, ndims): covariance matrices (symmetric positive definite).
+    # orientation_only:       if True, use PPD — rotate eigenvectors by jac then
+    #                         re-orthonormalize; eigenvalues are preserved.
+    # Returns new_covs (n, ndims, ndims).
+
+    if orientation_only:
+        def _ppd(cov, J):
+            _, Q = jnp.linalg.eigh(cov)             # Q cols: eigenvectors, ascending order
+            TQ, _ = jnp.linalg.qr(J @ Q[:, ::-1])  # transform & orthonormalize, principal first
+            R = TQ[:, ::-1] @ Q.T                   # rotation: new eigenvecs → old eigenvecs
+            return R @ cov @ R.T
+        return jax.vmap(_ppd)(covs, jac)
+    else:
+        return jnp.einsum("nij,njk,nlk->nil", jac, covs, jac)  # J @ Σ @ Jᵀ
+
+
 @jax.jit
 def chamfer(pts1, pts2):
     dist = pts_dist(pts1, pts2)
@@ -316,6 +335,19 @@ def normals_contour(pts, simps, eps=1e-9):
     pts_normals = pts_normals / (np.linalg.norm(pts_normals, axis=1, keepdims=True) + eps)
 
     return pts_normals
+
+
+def normals_mesh(pts, simps, eps=1e-9):
+    v0, v1, v2 = pts[simps[:, 0]], pts[simps[:, 1]], pts[simps[:, 2]]
+    face_normals = np.cross(v1 - v0, v2 - v0)  # area-weighted
+
+    vertex_normals = np.zeros_like(pts)
+    np.add.at(vertex_normals, simps[:, 0], face_normals)
+    np.add.at(vertex_normals, simps[:, 1], face_normals)
+    np.add.at(vertex_normals, simps[:, 2], face_normals)
+
+    vertex_normals /= np.linalg.norm(vertex_normals, axis=1, keepdims=True) + eps
+    return vertex_normals
 
 
 def concat_contours(contours, z_coords=None):
