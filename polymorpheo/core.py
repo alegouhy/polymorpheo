@@ -1,5 +1,4 @@
 import copy
-import time
 
 import numpy as np
 from scipy.linalg import expm, logm
@@ -58,8 +57,11 @@ class bridge_contours:
 class register_slices:
     def __init__(
         self,
-        method,
         transfo_type,
+        propag="gs",          # "gs" (Gauss-Seidel) | "jacobi"
+        start="middle",       # "middle" | "first"  (GS only; ignored for jacobi)
+        multi="simultaneous", # "independent_avg" | "simultaneous"
+        n_neigh=2,            # 1 | 2
         init="identity",
         niter=1,
         degree=2,
@@ -71,12 +73,18 @@ class register_slices:
         wreg=1e-1,
         sigma=1e-1,
         int_steps=16,
+        tol=1e-6,
         plot=False,
         xlim=None,
         ylim=None,
+        verbose=True,
     ):
-        self.method = method
-        self.niter = niter
+        self.propag  = propag
+        self.start   = start
+        self.multi   = multi
+        self.n_neigh = n_neigh
+        self.niter   = niter
+        self.verbose = verbose
 
         if transfo_type in ("rig", "rigid", "aff", "affine"):
             self.transfo_type = "linear"
@@ -89,6 +97,7 @@ class register_slices:
                 plot=plot,
                 xlim=xlim,
                 ylim=ylim,
+                verbose=verbose,
             )
 
         elif transfo_type in ("poly", "polynomial"):
@@ -102,6 +111,7 @@ class register_slices:
                 plot=plot,
                 xlim=xlim,
                 ylim=ylim,
+                verbose=verbose,
             )
 
         elif transfo_type == "deformable":
@@ -114,365 +124,120 @@ class register_slices:
                 wreg=wreg,
                 sigma=sigma,
                 int_steps=int_steps,
+                tol=tol,
                 plot=plot,
+                xlim=xlim,
+                ylim=ylim,
+                verbose=verbose,
             )
 
-    def _identity_transfo(self, ndims):
-        transfo = transfo_ops.affine()
-        transfo.set_params(np.eye(ndims), np.zeros(ndims))
-        return transfo
+    def _sweep_passes(self, nslice):
+        mid = nslice // 2
+        if self.propag == "jacobi":
+            even = [(i, "fwd") for i in range(0, nslice, 2)]
+            odd  = [(i, "fwd") for i in range(1, nslice, 2)]
+            return [even, odd]
+        elif self.start == "first":
+            return [[(i, "fwd") for i in range(1, nslice)]]
+        else:  # middle
+            fwd = [(i, "fwd") for i in range(mid + 1, nslice)]
+            bwd = [(i, "bwd") for i in reversed(range(0, mid))]
+            return [fwd, bwd]
 
-    def _linear_transfo(self, T):
-        lin, trans = utils.aff_dehmgn(T)
-        transfo = transfo_ops.affine()
-        transfo.set_params(lin, trans)
-        return transfo
+    def _get_refs(self, polylines, polylines0, i, nslice, direction):
+        def prev_ref(j):
+            if j <= 0: return None
+            return polylines[j-1] if self.propag == "gs" and direction == "fwd" else polylines0[j-1]
 
-    def _deformable_transfo(self):
-        return copy.deepcopy(self.reg.polytransfo_out)
+        def next_ref(j):
+            if j >= nslice - 1: return None
+            return polylines[j+1] if self.propag == "gs" and direction == "bwd" else polylines0[j+1]
+
+        if self.n_neigh == 1:
+            ref = prev_ref(i) if direction == "fwd" else next_ref(i)
+            return [ref] if ref is not None else []
+        else:
+            return [r for r in [prev_ref(i), next_ref(i)] if r is not None]
+
+    def _run_reg(self, refs, mov_polyline):
+        ref_arg = refs[0] if len(refs) == 1 else refs
+        if self.transfo_type == "linear":
+            transfo, moved = self.reg.compute(ref_arg, mov_polyline)
+            return moved, transfo
+        elif self.transfo_type == "polynomial":
+            _, moved = self.reg.compute(ref_arg, mov_polyline)
+            return moved, None
+        else:
+            transfo, moved, _ = self.reg.compute(ref_arg, mov_polyline)
+            return moved, transfo
+
+    def _independent_avg(self, refs, mov_polyline):
+        mov_pts, mov_simps, _, mov_labs = mov_polyline
+        ndims = int(mov_pts.shape[1])
+        ref_a = refs[0]
+        ref_b = refs[1] if len(refs) > 1 else None
+
+        if self.transfo_type == "linear":
+            aff_a, _ = self.reg.compute(ref_a, mov_polyline)
+            T_a = utils.aff_hmgn(aff_a.lin, aff_a.trans)
+            if ref_b is not None:
+                aff_b, _ = self.reg.compute(ref_b, mov_polyline)
+                T_b = utils.aff_hmgn(aff_b.lin, aff_b.trans)
+            else:
+                T_b = np.eye(ndims + 1)
+            aff = np.real(expm((logm(T_a, disp=False)[0] + logm(T_b, disp=False)[0]) / 2))
+            lin, trans = utils.aff_dehmgn(aff)
+            moved_pts = mov_pts @ lin.T + trans
+            transfo = transfo_ops.affine()
+            transfo.set_params(lin, trans)
+            return (moved_pts, mov_simps, None, mov_labs), transfo
+
+        elif self.transfo_type == "polynomial":
+            _, moved_a = self.reg.compute(ref_a, mov_polyline)
+            if ref_b is not None:
+                _, moved_b = self.reg.compute(ref_b, mov_polyline)
+                moved_pts = (np.array(moved_a[0]) + np.array(moved_b[0])) / 2
+            else:
+                moved_pts = (np.array(moved_a[0]) + np.array(mov_pts)) / 2
+            return (moved_pts, mov_simps, None, mov_labs), None
+
+        else:  # deformable
+            poly_a, _, _ = self.reg.compute(ref_a, mov_polyline)
+            if ref_b is not None:
+                poly_b, _, _ = self.reg.compute(ref_b, mov_polyline)
+                theta_avg = (poly_a.theta_trans + poly_b.theta_trans) / 2
+            else:
+                theta_avg = poly_a.theta_trans / 2
+            poly_a.set_params(poly_a.cpts, theta_trans=theta_avg)
+            moved_pts = poly_a.transform(mov_pts)
+            return (moved_pts, mov_simps, None, mov_labs), poly_a
+
+    def _register(self, refs, mov_polyline):
+        if self.n_neigh == 1 or (self.multi == "simultaneous" and len(refs) >= 2):
+            return self._run_reg(refs, mov_polyline)
+        else:
+            return self._independent_avg(refs, mov_polyline)
 
     def compute(self, polylines):
-        if self.method == 0:
-            return self._method_0(polylines)
-        elif self.method == 1:
-            return self._method_1(polylines)
-        elif self.method == 2:
-            return self._method_2(polylines)
-        elif self.method == 3:
-            return self._method_3(polylines)
-        elif self.method == 4:
-            return self._method_4(polylines)
-        elif self.method == 5:
-            return self._method_5(polylines)
-
-    def _method_0(self, polylines):
         nslice = len(polylines)
-        midslice = int(nslice / 2)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
+        polylines  = copy.deepcopy(polylines)
         polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
+        transfos   = [[] for _ in range(nslice)]
 
         for _ in range(self.niter):
-            for i in range(midslice, nslice - 1):
-                ref_polyline = polylines[i]
-                mov_polyline = polylines0[i + 1]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i + 1].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i + 1].append(self._deformable_transfo())
-
-                polylines[i + 1] = moved_polyline
-
-            for i in reversed(range(1, midslice + 1)):
-                ref_polyline = polylines[i]
-                mov_polyline = polylines[i - 1]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i - 1].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i - 1].append(self._deformable_transfo())
-
-                polylines[i - 1] = moved_polyline
-
+            for pass_ in self._sweep_passes(nslice):
+                for i, direction in pass_:
+                    refs = self._get_refs(polylines, polylines0, i, nslice, direction)
+                    if not refs:
+                        continue
+                    self.reg.title = f"slice: {i}"
+                    moved, transfo = self._register(refs, polylines0[i])
+                    polylines[i] = moved
+                    if transfo is not None:
+                        transfos[i].append(transfo)
+                if self.propag == "jacobi":
+                    polylines0 = copy.deepcopy(polylines)
             polylines0 = copy.deepcopy(polylines)
 
         return polylines, transfos
 
-    def _method_1(self, polylines):
-        nslice = len(polylines)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
-
-        for _ in range(self.niter):
-            for i in range(1, nslice - 1):
-                prev_polyline = polylines[i - 1]
-                next_polyline = polylines0[i + 1]
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
-                    lin, trans = utils.aff_dehmgn(aff)
-                    moved_pts = mov_pts @ lin.T + trans
-                    transfo = transfo_ops.affine()
-                    transfo.set_params(lin, trans)
-                    transfos[i].append(transfo)
-                elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
-                    moved_pts_prev, _, _, _ = moved_polyline_prev
-                    moved_pts_next, _, _, _ = moved_polyline_next
-                    moved_pts = (moved_pts_prev + moved_pts_next) / 2
-                elif self.transfo_type == "deformable":
-                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
-                    theta = (theta_prev + theta_next) / 2
-                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    transfos[i].append(self._deformable_transfo())
-
-                moved_polyline = moved_pts, mov_simps, None, mov_labs
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-        return polylines, transfos
-
-    def _method_2(self, polylines):
-        nslice = len(polylines)
-        midslice = int(nslice / 2)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
-
-        for _ in range(self.niter):
-            for i in range(midslice, nslice - 1):
-                prev_polyline = polylines[i - 1]
-                next_polyline = polylines0[i + 1]
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
-                    lin, trans = utils.aff_dehmgn(aff)
-                    moved_pts = mov_pts @ lin.T + trans
-                    transfo = transfo_ops.affine()
-                    transfo.set_params(lin, trans)
-                    transfos[i].append(transfo)
-                elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
-                    moved_pts_prev, _, _, _ = moved_polyline_prev
-                    moved_pts_next, _, _, _ = moved_polyline_next
-                    moved_pts = (moved_pts_prev + moved_pts_next) / 2
-                elif self.transfo_type == "deformable":
-                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
-                    theta = (theta_prev + theta_next) / 2
-                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    transfos[i].append(self._deformable_transfo())
-
-                moved_polyline = moved_pts, mov_simps, None, mov_labs
-                polylines[i] = moved_polyline
-
-            for i in reversed(range(1, midslice + 1)):
-                prev_polyline = polylines[i + 1]
-                next_polyline = polylines0[i - 1]
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline)
-                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
-                    lin, trans = utils.aff_dehmgn(aff)
-                    moved_pts = mov_pts @ lin.T + trans
-                    transfo = transfo_ops.affine()
-                    transfo.set_params(lin, trans)
-                    transfos[i].append(transfo)
-                elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline)
-                    moved_pts_prev, _, _, _ = moved_polyline_prev
-                    moved_pts_next, _, _, _ = moved_polyline_next
-                    moved_pts = (moved_pts_prev + moved_pts_next) / 2
-                elif self.transfo_type == "deformable":
-                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline)
-                    theta = (theta_prev + theta_next) / 2
-                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    transfos[i].append(self._deformable_transfo())
-
-                moved_polyline = moved_pts, mov_simps, None, mov_labs
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-        return polylines, transfos
-
-    def _method_3(self, polylines):
-        nslice = len(polylines)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
-
-        for _ in range(self.niter):
-            for i in range(1, nslice, 2):
-                mov_polyline = polylines0[i]
-                prev_polyline = polylines0[i - 1]
-                next_polyline = polylines0[i + 1] if i < nslice - 1 else None
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.eye(3), None)
-                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
-                    lin, trans = utils.aff_dehmgn(aff)
-                    moved_pts = mov_pts @ lin.T + trans
-                    transfo = transfo_ops.affine()
-                    transfo.set_params(lin, trans)
-                    transfos[i].append(transfo)
-                elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline)
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline
-                    moved_pts_prev, _, _, _ = moved_polyline_prev
-                    moved_pts_next, _, _, _ = moved_polyline_next
-                    moved_pts = (moved_pts_prev + moved_pts_next) / 2
-                elif self.transfo_type == "deformable":
-                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline)
-                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
-                    theta = (theta_prev + theta_next) / 2
-                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    transfos[i].append(self._deformable_transfo())
-
-                moved_polyline = moved_pts, mov_simps, None, mov_labs
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-            for i in range(0, nslice, 2):
-                mov_polyline = polylines0[i]
-                prev_polyline = polylines0[i - 1] if i > 0 else None
-                next_polyline = polylines0[i + 1] if i < nslice - 1 else None
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-
-                if self.transfo_type == "linear":
-                    aff_prev, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.eye(3), None)
-                    aff_next, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.eye(3), None)
-                    aff = np.real(expm((logm(aff_prev, disp=False)[0] + logm(aff_next, disp=False)[0]) / 2))
-                    lin, trans = utils.aff_dehmgn(aff)
-                    moved_pts = mov_pts @ lin.T + trans
-                    transfo = transfo_ops.affine()
-                    transfo.set_params(lin, trans)
-                    transfos[i].append(transfo)
-                elif self.transfo_type == "polynomial":
-                    moved_polyline_prev = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else mov_polyline
-                    moved_polyline_next = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else mov_polyline
-                    moved_pts_prev, _, _, _ = moved_polyline_prev
-                    moved_pts_next, _, _, _ = moved_polyline_next
-                    moved_pts = (moved_pts_prev + moved_pts_next) / 2
-                elif self.transfo_type == "deformable":
-                    theta_prev, _, _ = self.reg.compute(prev_polyline, mov_polyline) if i > 0 else (np.zeros_like(mov_pts), None, None)
-                    theta_next, _, _ = self.reg.compute(next_polyline, mov_polyline) if i < nslice - 1 else (np.zeros_like(mov_pts), None, None)
-                    theta = (theta_prev + theta_next) / 2
-                    moved_pts = self.reg.polytransfo.transform(mov_pts, mov_pts, theta_lin=None, theta_trans=theta)
-                    transfos[i].append(self._deformable_transfo())
-
-                moved_polyline = moved_pts, mov_simps, None, mov_labs
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-        return polylines, transfos
-
-    def _method_4(self, polylines):
-        nslice = len(polylines)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
-
-        for _ in range(self.niter):
-            for i in range(1, nslice - 1, 2):
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-                ref_polyline = [polylines0[i - 1], polylines0[i + 1]]
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._deformable_transfo())
-
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-            for i in range(2, nslice - 1, 2):
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-                ref_polyline = [polylines0[i - 1], polylines0[i + 1]]
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._deformable_transfo())
-
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-        return polylines, transfos
-
-    def _method_5(self, polylines):
-        nslice = len(polylines)
-        midslice = int(nslice / 2)
-        ndims = polylines[0][0].shape[1]
-        polylines = copy.deepcopy(polylines)
-        polylines0 = copy.deepcopy(polylines)
-        transfos = [[] for _ in range(nslice)]
-
-        for _ in range(self.niter):
-            t = time.time()
-            for i in range(midslice + 1, nslice - 1):
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-                ref_polyline = [polylines[i - 1], polylines0[i + 1]]
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._deformable_transfo())
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-
-            for i in reversed(range(1, midslice)):
-                mov_polyline = polylines0[i]
-                mov_pts, mov_simps, _, mov_labs = mov_polyline
-                ref_polyline = [polylines0[i - 1], polylines[i + 1]]
-
-                if self.transfo_type == "linear":
-                    T, moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._linear_transfo(T))
-                elif self.transfo_type == "polynomial":
-                    moved_polyline = self.reg.compute(ref_polyline, mov_polyline)
-                elif self.transfo_type == "deformable":
-                    theta, moved_polyline, _ = self.reg.compute(ref_polyline, mov_polyline)
-                    transfos[i].append(self._deformable_transfo())
-                polylines[i] = moved_polyline
-
-            polylines0 = copy.deepcopy(polylines)
-            print("done in: ", time.time() - t)
-
-        return polylines, transfos

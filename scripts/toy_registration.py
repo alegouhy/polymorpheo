@@ -3,6 +3,12 @@ import sys
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+os.environ["JAX_PLATFORMS"] = "cpu"
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,21 +16,7 @@ import numpy as np
 import polymorpheo.energy as energy
 import polymorpheo.register as register
 import polymorpheo.transfo as transfo_ops
-import polymorpheo.utils as utils
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
-
-os.environ["JAX_PLATFORMS"] = "cpu"
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-
-import time
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-import polymorpheo.energy as energy
-import polymorpheo.register as register
+import polymorpheo.plot as plot
 import polymorpheo.utils as utils
 
 # %%
@@ -55,8 +47,8 @@ ref_contour = utils.concat_contours((ref_contour, ref_contour_2))
 
 plt.figure(dpi=300)
 plt.subplot(2, 3, 1)
-utils.plot_contour(ref_contour)
-utils.plot_contour(mov_contour)
+plot.plot_contour(ref_contour)
+plot.plot_contour(mov_contour)
 plt.title("raw")
 
 
@@ -70,32 +62,28 @@ reg_rig = register.reg_linear(
     niter=niter, transfo=transfo, init=init, se=True, plot=False, bidir=bidir
 )
 
-t = time.time()
 rig, moved_contour_rig = reg_rig.compute(ref_contour, mov_contour)
-print(f"rigid done in: {time.time() - t:.2f} s")
 
 plt.subplot(2, 3, 2)
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour(moved_contour_rig, col=[0, 0, 1])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour(moved_contour_rig, col=[0, 0, 1])
 plt.title("rigid")
 # plt.show()
 
 # %% affine ICP
 
 niter = 20
-transfo = "similarity"  # 'affine'
+transfo = "affine"
 
 reg_aff = register.reg_linear(
     niter=niter, transfo=transfo, se=True, plot=False, bidir=bidir
 )
 
-t = time.time()
 aff, moved_contour_aff = reg_aff.compute(ref_contour, moved_contour_rig)
-print(f"affine done in: {time.time() - t:.2f} s")
 
 plt.subplot(2, 3, 3)
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour(moved_contour_aff, col=[0, 0, 1])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour(moved_contour_aff, col=[0, 0, 1])
 plt.title("affine")
 # plt.show()
 
@@ -107,13 +95,11 @@ degree = 2
 
 reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir)
 
-t = time.time()
-moved_contour_quad = reg_poly.compute(ref_contour, moved_contour_aff)
-print(f"poly done in: {time.time() - t:.2f} s")
+_, moved_contour_quad = reg_poly.compute(ref_contour, moved_contour_aff)
 
 plt.subplot(2, 3, 4)
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour(moved_contour_quad, col=[0, 0, 1])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour(moved_contour_quad, col=[0, 0, 1])
 plt.title("quadratic")
 # plt.show()
 
@@ -125,31 +111,28 @@ degree = 3
 
 reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=True, plot=False, bidir=bidir)
 
-t = time.time()
-moved_contour_cube = reg_poly.compute(ref_contour, moved_contour_aff)
-print(f"poly done in: {time.time() - t:.2f} s")
+_, moved_contour_cube = reg_poly.compute(ref_contour, moved_contour_aff)
 
 plt.subplot(2, 3, 5)
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour(moved_contour_cube, col=[0, 0, 1])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour(moved_contour_cube, col=[0, 0, 1])
 plt.title("cubic")
 
 # %% non-rigid ICP
 
 niter = 50
-lr = [1e-2]  # , 1e-3, 1e-3]
+lr = [1e-2, 1e-3, 1e-3]
 wreg = [1e-1, 1e-2, 1e-2]
 int_steps = 16
 sigma = [1e-1, 1e-2, 1e-3]
 tol = 1e-6
 
-fit_fun = energy.point2point(agg="mean")
+fit_fun = energy.point2plane(agg="mean")
 regul_fun = energy.grad_disp(l_norm=2)
 moved_contour_defo = moved_contour_aff
 
 losses = []
-reg_defos = []
-t = time.time()
+polytransfos = []
 for i in range(len(lr)):
     reg_defo = register.reg_deformable(
         niter=niter,
@@ -164,15 +147,13 @@ for i in range(len(lr)):
         normalise=True,
     )
 
-    disp, moved_contour_defo, loss = reg_defo.compute(ref_contour, moved_contour_defo)
-    reg_defos.append(reg_defo)
+    polytransfo, moved_contour_defo, loss = reg_defo.compute(ref_contour, moved_contour_defo)
+    polytransfos.append(polytransfo)
     losses.append(loss)
 
-print(f"deformable done in: {time.time() - t:.2f} s")
-
 plt.subplot(2, 3, 6)
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour(moved_contour_defo, col=[0, 0, 1])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour(moved_contour_defo, col=[0, 0, 1])
 plt.title("deformable")
 
 
@@ -188,26 +169,14 @@ plt.show()
 
 # %% test transfo chain compo
 
-
-rig_lin, rig_trans = utils.aff_dehmgn(rig)
-rig_transfo = transfo_ops.affine()
-rig_transfo.set_params(rig_lin, rig_trans)
-
-aff_lin, aff_trans = utils.aff_dehmgn(aff)
-aff_transfo = transfo_ops.affine()
-aff_transfo.set_params(aff_lin, aff_trans)
-
-
-chain = [rig_transfo, aff_transfo] + [rd.polytransfo for rd in reg_defos]
+chain = [rig, aff] + polytransfos
 moved_pts_chain = transfo_ops.apply_transfo_chain(chain, mov_pts)
 
-import jax.numpy as jnp
-
-print("max diff rig:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_rig[0]))))
+print("max diff:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_defo[0]))))
 
 plt.figure()
-utils.plot_contour(ref_contour, col=[1, 0, 0])
-utils.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0, 0, 1])
-utils.plot_contour(moved_contour_defo, col=[0, 1, 0])
+plot.plot_contour(ref_contour, col=[1, 0, 0])
+plot.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0, 0, 1])
+plot.plot_contour(moved_contour_defo, col=[0, 1, 0])
 plt.title("chain (blue) vs sequential (green)")
 plt.show()

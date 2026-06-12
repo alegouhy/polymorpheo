@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+import polymorpheo.plot as plot
 import polymorpheo.utils as utils
 
 from .log import get_logger
@@ -27,13 +28,15 @@ class io:
         nslice = len(opts_lists[0])
 
         pts_all = np.vstack([opt for opts_list in opts_lists for opts in opts_list if opts is not None for opt in opts])
-        self.xlim = np.min(pts_all[:, 0]), np.max(pts_all[:, 0])
-        self.ylim = np.min(pts_all[:, 1]), np.max(pts_all[:, 1])
 
         if self.spacing is None:
             self.spacing = np.ones(pts_all.shape[1] + 1)
         else:
             self.spacing = np.array(self.spacing)
+
+        scaled = pts_all * self.spacing[:2]
+        self.xlim = np.min(scaled[:, 0]), np.max(scaled[:, 0])
+        self.ylim = np.min(scaled[:, 1]), np.max(scaled[:, 1])
 
         logger.info("Loading contours from %s", files)
         polylines = []
@@ -62,7 +65,7 @@ class io:
 
             if plot:
                 logger.info("Plotting slice %d/%d", z + 1, nslice)
-                utils.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
+                plot.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
                 plt.title('slice ' + str(z))
                 plt.show()
 

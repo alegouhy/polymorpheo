@@ -7,6 +7,11 @@ name = "polymorpheo"
 version = "0.1.0"
 description = "Register polynomial contours to 3D meshes."
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Antoine Legouhy", email = "alegouhy@pasteur.fr" },
+  { name = "Clément Caporal" },
+]
 requires-python = ">=3.10"
 dependencies = [
   "jax",

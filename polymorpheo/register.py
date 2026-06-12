@@ -2,17 +2,26 @@ import copy
 
 import jax
 import jax.numpy as jnp
+import matplotlib
+matplotlib.rcParams['figure.dpi'] = 200
 import matplotlib.pyplot as plt
+import time
 import optax
 from jax import lax
 
 import polymorpheo.energy as energy
 import polymorpheo.transfo as transfo_ops
+import polymorpheo.plot as plot
 import polymorpheo.utils as utils
 
 from .log import get_logger
 
 logger = get_logger(__name__)
+
+# colors consistent with fig_register_methods.py (lightened at t=0.7)
+_COL_MOV  = [0.2, 0.7, 0.2]          # moving  — green
+_COL_REFS = [[0.76, 0.82, 0.97],      # ref[0]  — lightened blue  (n-1)
+             [0.97, 0.76, 0.76]]      # ref[1]  — lightened red   (n+1)
 
 # %%
 
@@ -46,7 +55,12 @@ def load_meshes(ref_mesh, mov_mesh, normalise=True):
 # %%
 
 
-def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10):
+def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10, verbose=True):
+
+    t = time.time()
+    if verbose:
+        print('brut force cube affine registration...', end='', flush=True)
+
     mov_pts_mu = jnp.mean(mov_pts, axis=0)
     ref_pts_mu = jnp.mean(ref_pts, axis=0)
     if do_scale:
@@ -98,6 +112,9 @@ def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10):
             trans_best = trans
             moved_pts_best = moved_pts
 
+    if verbose:
+        print(f"done in {time.time() - t:.2f} s.")
+
     return moved_pts_best, lin_best, trans_best
 
 
@@ -114,8 +131,10 @@ class reg_linear:
         bidir=False,
         tol=1e-6,
         plot=False,
+        title=None,
         xlim=None,
         ylim=None,
+        verbose=True,
     ):
         """
         transfo: 'rigid', 'rigid2' or 'affine'
@@ -127,9 +146,11 @@ class reg_linear:
         self.tol = tol
 
         self.plot = plot
+        self.title = title
         self.xlim = xlim
         self.ylim = ylim
 
+        self.verbose = verbose
         self.opti_transfo_fun = transfo_ops.opti_linear_transfo(transfo, se=se)
         self.init_transfo = transfo_ops.init_transfo(init)
 
@@ -149,6 +170,9 @@ class reg_linear:
             self.niter,
             self.opti_transfo_fun.__class__.__name__,
         )
+        t = time.time()
+        if self.verbose:
+            print(f"{self.opti_transfo_fun.transfo} registration...", end=" ", flush=True)
         if T0 is None:
             ref_pts = jnp.concatenate(ref_pts_list, axis=0)
             T, moved_pts = self.init_transfo.transform(ref_pts, mov_pts)
@@ -180,16 +204,21 @@ class reg_linear:
 
             if self.plot:
                 if k % self.plot == 0:
-                    for ref_mesh in ref_mesh_list:
-                        utils.plot_contour(ref_mesh, col=[1, 0, 0])
-                    utils.plot_contour(moved_mesh, col=[0, 0, 1])
+                    for k_ref, ref_mesh in enumerate(ref_mesh_list):
+                        plot.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plot.plot_contour(moved_mesh, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
-                    plt.title(f"it: {k}", fontsize=7)
+                    plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
                     logger.debug("Showing plot for iteration %d", k)
                     plt.show()
 
-        return T, moved_mesh
+        lin, trans = utils.aff_dehmgn(T)
+        transfo_out = transfo_ops.affine()
+        transfo_out.set_params(lin, trans)
+        if self.verbose:
+            print(f"done in {time.time() - t:.2f} s.")
+        return transfo_out, moved_mesh
 
 
 # %%
@@ -205,8 +234,10 @@ class reg_polynom:
         bidir=False,
         tol=1e-6,
         plot=False,
+        title=None,
         xlim=None,
         ylim=None,
+        verbose=True,
     ):
         """
         init: 'identity', 'centroids', 'similarity' or 'ellipsoid'
@@ -217,9 +248,11 @@ class reg_polynom:
         self.tol = tol
 
         self.plot = plot
+        self.title = title
         self.xlim = xlim
         self.ylim = ylim
 
+        self.verbose = verbose
         self.opti_transfo_fun = transfo_ops.opti_polynom_transfo(degree, se=se)
         self.init_transfo = transfo_ops.init_transfo(init)
 
@@ -232,6 +265,7 @@ class reg_polynom:
         ref_pts_list = [mesh[0] for mesh in ref_mesh_list]
         ref_labs_list = [mesh[3] for mesh in ref_mesh_list]
         mov_pts, mov_simps, _, mov_labs = mov_mesh
+        mov_pts_orig = mov_pts
 
         if disp0 is None:
             ref_pts = jnp.concatenate(ref_pts_list, axis=0)
@@ -244,6 +278,9 @@ class reg_polynom:
             self.niter,
             self.opti_transfo_fun.__class__.__name__,
         )
+        t = time.time()
+        if self.verbose:
+            print(f"polynomial (degree {self.opti_transfo_fun.degree}) registration...", end=" ", flush=True)
         for k in range(self.niter):
             ref_nn_pts, mov_nn_pts = utils.nearest_neighbors(
                 ref_pts_list, moved_pts, ref_labs_list, mov_labs, self.bidir
@@ -265,16 +302,21 @@ class reg_polynom:
 
             if self.plot:
                 if k % self.plot == 0:
-                    for ref_mesh in ref_mesh_list:
-                        utils.plot_contour(ref_mesh, col=[1, 0, 0])
-                    utils.plot_mesh(moved_mesh, col=[0, 0, 1])
+                    for k_ref, ref_mesh in enumerate(ref_mesh_list):
+                        plot.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plot.plot_contour(moved_mesh, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
-                    plt.title(f"it: {k}", fontsize=7)
+                    plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
                     logger.debug("Showing plot for iteration %d", k)
                     plt.show()
 
-        return moved_mesh
+        coeffs_agg = self.opti_transfo_fun.fit(moved_pts, mov_pts_orig)
+        transfo_out = transfo_ops.polynom()
+        transfo_out.set_params(coeffs_agg, self.opti_transfo_fun.mov_pts_mu, self.opti_transfo_fun.ref_pts_mu, self.opti_transfo_fun.degree)
+        if self.verbose:
+            print(f"done in {time.time() - t:.2f} s.")
+        return transfo_out, moved_mesh
 
 
 # %%
@@ -296,8 +338,10 @@ class reg_deformable:
         tol=None,
         warmup_steps=5,
         plot=False,
+        title=None,
         xlim=None,
         ylim=None,
+        verbose=True,
     ):
         self.niter = niter
         self.lr = lr
@@ -311,6 +355,7 @@ class reg_deformable:
         self.cpts_ratio = cpts_ratio
         self.tol = tol
         self.plot = plot
+        self.verbose = verbose
         self.xlim = xlim
         self.ylim = ylim
 
@@ -336,8 +381,12 @@ class reg_deformable:
             self.opti_loop = self.make_opti_plot_loop(opti_step, tol, niter, warmup_steps)
 
     def compute(self, ref_mesh, mov_mesh):
+        t = time.time()
+        if self.verbose:
+            print("deformable registration...", end=" ", flush=True)
 
         ref_mesh_list, mov_mesh_n, mu, amp = load_meshes(ref_mesh, mov_mesh, self.normalise)
+        self._mu, self._amp = mu, amp  # stored for the plot loop
         mov_pts_n, mov_simps, _, mov_labs = mov_mesh_n
 
         if self.cpts_ratio == 1:
@@ -353,11 +402,13 @@ class reg_deformable:
         moved_pts_n = self.polytransfo.transform(mov_pts_n, cpts, theta_lin=None, theta_trans=theta)
         moved_mesh = utils.denormalise_meshes([(moved_pts_n, mov_simps, None, mov_labs)], mu, amp)[0]
 
-        self.polytransfo_out = copy.deepcopy(self.polytransfo)
-        self.polytransfo_out.sigma = self.sigma * amp
-        self.polytransfo_out.set_params(cpts * amp + mu, theta_trans=theta * amp)
+        polytransfo_out = copy.deepcopy(self.polytransfo)
+        polytransfo_out.sigma = self.sigma * amp
+        polytransfo_out.set_params(cpts * amp + mu, theta_trans=theta * amp)
 
-        return theta * amp, moved_mesh, losses
+        if self.verbose:
+            print(f"done in {time.time() - t:.2f} s.")
+        return polytransfo_out, moved_mesh, losses
 
     def make_opti_step(self, fit_fun, regul_fun, wreg, polytransfo, optimizer):
 
@@ -427,12 +478,17 @@ class reg_deformable:
                 if k % self.plot == 0:
                     moved_pts_plot = self.polytransfo.transform(mov_pts, cpts, theta_lin=None, theta_trans=theta)
                     moved_mesh_plot = (moved_pts_plot, mov_simps, None, mov_labs)
-                    for ref_m in ref_mesh_list:
-                        utils.plot_contour(ref_m, col=[1, 0, 0])
-                    utils.plot_contour(moved_mesh_plot, col=[0, 0, 1])
+                    if self.normalise:
+                        [moved_mesh_plot] = utils.denormalise_meshes([moved_mesh_plot], self._mu, self._amp)
+                        refs_mesh_plot_list = utils.denormalise_meshes(ref_mesh_list, self._mu, self._amp)
+                    else:
+                        refs_mesh_plot_list  = ref_mesh_list.copy()
+                    for k_ref, ref_m in enumerate(refs_mesh_plot_list):
+                        plot.plot_contour(ref_m, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plot.plot_contour(moved_mesh_plot, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
-                    plt.title(f"it: {k}", fontsize=7)
+                    plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
                     plt.show()
 
             return theta, jnp.array(losses)

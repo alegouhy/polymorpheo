@@ -35,8 +35,6 @@ bidir = True
 thr_conn = [0.2, 0.5]
 niter = 1
 
-method = 4  # serial registration method
-
 io = polymorpheo.io(
     datadir=datadir_path.replace("/sample_contours.npz", ""),
     names=["sample_contours"],
@@ -54,27 +52,27 @@ meshes_raw = mesher.compute(polylines_raw, z_coords)
 io.save(meshes_raw, REPORTS_DIR, suffix="raw")
 
 transfo_type = "rigid"
-print("method " + str(method) + ", " + transfo_type)
+print("jacobi/simultaneous, " + transfo_type)
 init = "centroid"
-reg = polymorpheo.register_slices(method, transfo_type, init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim)
+reg = polymorpheo.register_slices(transfo_type, propag="jacobi", multi="simultaneous", init=init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim, verbose=False)
 polylines_rig, transfos_rig = reg.compute(polylines_raw)
 meshes_rig = mesher.compute(polylines_rig, z_coords)
-io.save(meshes_rig, REPORTS_DIR, suffix="rig_met-" + str(method))
+io.save(meshes_rig, REPORTS_DIR, suffix="rig_jacobi-simult")
 print("Saved rigid meshes in " + str(REPORTS_DIR))
 
 
 transfo_type = "affine"
-print("method " + str(method) + ", " + transfo_type)
+print("jacobi/simultaneous, " + transfo_type)
 init = "identity"
-reg = polymorpheo.register_slices(method, transfo_type, init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim)
+reg = polymorpheo.register_slices(transfo_type, propag="jacobi", multi="simultaneous", init=init, bidir=bidir, plot=False, xlim=io.xlim, ylim=io.ylim, verbose=False)
 polylines_aff, transfos_aff = reg.compute(polylines_rig)
 meshes_aff = mesher.compute(polylines_aff, z_coords)
-io.save(meshes_aff, REPORTS_DIR, suffix="aff_met-" + str(method))
+io.save(meshes_aff, REPORTS_DIR, suffix="aff_jacobi-simult")
 print("Saved affine meshes in " + str(REPORTS_DIR))
 
 
 transfo_type = "deformable"
-print("method " + str(method) + ", " + transfo_type)
+print("jacobi/simultaneous, " + transfo_type)
 lr = 1e-2
 wreg = 5e-1
 int_steps = 16
@@ -84,8 +82,9 @@ fit_fun = energy.point2point(agg="mean", bidir=bidir)
 # regul_fun = energy.alap(transfo='similarity', normtype='l2')
 regul_fun = energy.grad_disp(l_norm=2)
 reg = polymorpheo.register_slices(
-    method,
     transfo_type,
+    propag="jacobi",
+    multi="simultaneous",
     fit_fun=fit_fun,
     regul_fun=regul_fun,
     niter=niter,
@@ -94,10 +93,11 @@ reg = polymorpheo.register_slices(
     wreg=wreg,
     sigma=sigma,
     int_steps=int_steps,
+    verbose=False,
 )
 polylines_defo, transfos_defo = reg.compute(polylines_aff)
 meshes_defo = mesher.compute(polylines_defo, z_coords)
-io.save(meshes_defo, REPORTS_DIR, suffix="defo_met-" + str(method) + "-" + str(niter))
+io.save(meshes_defo, REPORTS_DIR, suffix="defo_jacobi-simult-" + str(niter))
 print("Saved deformable meshes in " + str(REPORTS_DIR))
 
 
@@ -124,7 +124,7 @@ for i in range(len(polylines_raw)):
     polylines_chain.append((np.array(after_defo), simps, None, labs))
 
 meshes_chain = mesher.compute(polylines_chain, z_coords)
-io.save(meshes_chain, REPORTS_DIR, suffix="chain_met-" + str(method))
+io.save(meshes_chain, REPORTS_DIR, suffix="chain_jacobi-simult")
 print("Saved chain meshes in " + str(REPORTS_DIR))
 
 #%% test invert transfo
@@ -149,5 +149,5 @@ for i in range(len(polylines_defo)):
     polylines_inv.append((np.array(back), simps, None, labs))
 
 meshes_inv = mesher.compute(polylines_inv, z_coords)
-io.save(meshes_inv, REPORTS_DIR, suffix="inv_met-" + str(method))
+io.save(meshes_inv, REPORTS_DIR, suffix="inv_jacobi-simult")
 print("Saved inverse meshes in " + str(REPORTS_DIR))

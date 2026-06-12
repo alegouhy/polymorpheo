@@ -319,6 +319,21 @@ class opti_linear_transfo:
         return (mov_pts @ A.T) + t
 
 
+class polynom:
+    def __init__(self):
+        self._opti = None
+        self.coeffs = None
+
+    def set_params(self, coeffs, mov_pts_mu, ref_pts_mu, degree):
+        self.coeffs = coeffs
+        self._opti = opti_polynom_transfo(degree)
+        self._opti.mov_pts_mu = mov_pts_mu
+        self._opti.ref_pts_mu = ref_pts_mu
+
+    def transform(self, pts):
+        return self._opti.transform(self.coeffs, jnp.array(pts))
+
+
 class opti_polynom_transfo:
     def __init__(self, degree, se=True):
         self.degree = degree
