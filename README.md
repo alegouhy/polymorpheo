@@ -59,6 +59,17 @@ python scripts/align_slices.py path/to/contours.npz --spacing 0.1 0.1 1.25 --plo
 This runs the full rigid → affine → deformable pipeline and writes `contours_aligned.npz` next to the input file.
 `--plot` opens a before/after 3D view in the browser. `--mesh` additionally exports a surface mesh as OBJ.
 
+To register an aligned micro contour series onto a 3D MRI surface mesh, use `micro2mri.py`:
+
+```bash
+python scripts/micro2mri.py path/to/micro_contours.npz path/to/mri_mesh.ply --plot
+```
+
+This runs the 2D slice-alignment pipeline, then a cube-init → affine → coarse-to-fine
+deformable 3D registration onto the MRI mesh, and writes `micro_contours_deformed.npz`
+(the final deformed micro points and simplices) next to the input file.
+`--plot` shows before/after 3D overlays and loss curves for each stage.
+
 For a complete scripted example on real NPZ contour data, see `scripts/npz_registration.py`.
 
 ## Contributing

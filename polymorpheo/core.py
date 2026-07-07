@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from scipy.linalg import expm, logm
 
+import polymorpheo.energy as energy
 import polymorpheo.register as register
 import polymorpheo.transfo as transfo_ops
 import polymorpheo.utils as utils
@@ -52,6 +53,48 @@ class bridge_contours:
             meshes.append([pts, simps])
 
         return meshes
+
+
+def register_contour_slices(
+    polylines,
+    xlim,
+    ylim,
+    propag="jacobi",
+    multi="simultaneous",
+    bidir=True,
+    no_deformable=False,
+    plot=False,
+    verbose=True,
+):
+    """Rigid -> affine -> (optional) deformable registration of a contour slice series."""
+
+    reg = register_slices(
+        "rigid", propag=propag, multi=multi,
+        init="centroid", bidir=bidir,
+        xlim=xlim, ylim=ylim, verbose=verbose,
+    )
+    polylines, _ = reg.compute(polylines)
+
+    reg = register_slices(
+        "affine", propag=propag, multi=multi,
+        init="identity", bidir=bidir,
+        xlim=xlim, ylim=ylim, verbose=verbose,
+    )
+    polylines, _ = reg.compute(polylines)
+
+    if not no_deformable:
+        fit_fun = energy.point2point(agg="mean", bidir=bidir)
+        regul_fun = energy.grad_disp(l_norm=2)
+        reg = register_slices(
+            "deformable", propag=propag, multi=multi,
+            fit_fun=fit_fun, regul_fun=regul_fun,
+            niter=1, icp_niter=50, lr=1e-2, wreg=5e-1, sigma=1e-1,
+            int_steps=16, tol=1e-5,
+            xlim=xlim, ylim=ylim, plot=plot, verbose=verbose,
+        )
+        polylines, _ = reg.compute(polylines)
+
+    return polylines
 
 
 class register_slices:
