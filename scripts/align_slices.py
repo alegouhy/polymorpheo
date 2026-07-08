@@ -13,6 +13,7 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import numpy as np
 
 import polymorpheo
+import polymorpheo.energy as energy
 import polymorpheo.plot as plot
 import polymorpheo.utils as utils
 from polymorpheo.log import configure_logging
@@ -98,11 +99,31 @@ def main():
     polylines, z_coords = io_obj.load()
     polylines_raw = polylines
 
-    polylines = polymorpheo.register_contour_slices(
-        polylines, io_obj.xlim, io_obj.ylim,
-        propag=propag, multi=multi, bidir=bidir,
-        no_deformable=args.no_deformable, verbose=verbose,
+    reg = polymorpheo.register_slices(
+        "rigid", propag=propag, multi=multi,
+        init="centroid", bidir=bidir,
+        xlim=io_obj.xlim, ylim=io_obj.ylim, verbose=verbose,
     )
+    polylines, _ = reg.compute(polylines)
+
+    reg = polymorpheo.register_slices(
+        "affine", propag=propag, multi=multi,
+        init="identity", bidir=bidir,
+        xlim=io_obj.xlim, ylim=io_obj.ylim, verbose=verbose,
+    )
+    polylines, _ = reg.compute(polylines)
+
+    if not args.no_deformable:
+        fit_fun = energy.point2point(agg="mean", bidir=bidir)
+        regul_fun = energy.grad_disp(l_norm=2)
+        reg = polymorpheo.register_slices(
+            "deformable", propag=propag, multi=multi,
+            fit_fun=fit_fun, regul_fun=regul_fun,
+            niter=1, icp_niter=50, lr=1e-2, wreg=5e-1, sigma=1e-1,
+            int_steps=16, tol=1e-5,
+            xlim=io_obj.xlim, ylim=io_obj.ylim, verbose=verbose,
+        )
+        polylines, _ = reg.compute(polylines)
 
     npz_out = outdir / f"{name}_aligned.npz"
     save_aligned_npz(polylines, z_coords, spacing, nslice_orig, npz_out)
