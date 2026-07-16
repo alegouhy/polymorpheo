@@ -218,15 +218,18 @@ class register_slices:
         else:
             return self._independent_avg(refs, mov_polyline)
 
-    def compute(self, polylines):
+    def compute(self, polylines, fixed=None):
         nslice = len(polylines)
         polylines  = copy.deepcopy(polylines)
         polylines0 = copy.deepcopy(polylines)
         transfos   = [[] for _ in range(nslice)]
+        fixed = [] if fixed is None else fixed
 
         for _ in range(self.niter):
             for pass_ in self._sweep_passes(nslice):
                 for i, direction in pass_:
+                    if i in fixed:
+                        continue
                     refs = self._get_refs(polylines, polylines0, i, nslice, direction)
                     if not refs:
                         continue

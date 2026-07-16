@@ -165,11 +165,6 @@ class reg_linear:
         ref_labs_list = [mesh[3] for mesh in ref_mesh_list]
         mov_pts, mov_simps, _, mov_labs = mov_mesh
 
-        logger.info(
-            "Starting linear registration: niter=%s, transfo=%s",
-            self.niter,
-            self.opti_transfo_fun.__class__.__name__,
-        )
         t = time.time()
         if self.verbose:
             print(f"{self.opti_transfo_fun.transfo} registration...", end=" ", flush=True)
@@ -178,8 +173,8 @@ class reg_linear:
             T, moved_pts = self.init_transfo.transform(ref_pts, mov_pts)
         else:
             T = T0
-            A, t = utils.aff_dehmgn(T)
-            moved_pts = (mov_pts @ A.T) + t
+            lin0, trans0 = utils.aff_dehmgn(T)
+            moved_pts = (mov_pts @ lin0.T) + trans0
 
         for k in range(self.niter):
             ref_nn_pts, mov_nn_pts = utils.nearest_neighbors(
@@ -197,9 +192,6 @@ class reg_linear:
             if self.tol is not None:
                 delta = jnp.mean(jnp.sum((moved_pts - moved_pts_prev) ** 2, axis=1))
                 if delta < self.tol**2:
-                    logger.info(
-                        "Converged at iteration %d (delta=%f)", int(k), float(delta)
-                    )
                     break
 
             if self.plot:
@@ -273,11 +265,6 @@ class reg_polynom:
         else:
             moved_pts = mov_pts + disp0
 
-        logger.info(
-            "Starting polynomial registration: niter=%s, degree=%s",
-            self.niter,
-            self.opti_transfo_fun.__class__.__name__,
-        )
         t = time.time()
         if self.verbose:
             print(f"polynomial (degree {self.opti_transfo_fun.degree}) registration...", end=" ", flush=True)
@@ -295,9 +282,6 @@ class reg_polynom:
             if self.tol is not None:
                 delta = jnp.mean(jnp.sum((moved_pts - moved_pts_prev) ** 2, axis=1))
                 if delta < self.tol**2:
-                    logger.info(
-                        "Converged at iteration %d (delta=%f)", int(k), float(delta)
-                    )
                     break
 
             if self.plot:

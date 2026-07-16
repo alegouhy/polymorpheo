@@ -54,6 +54,9 @@ def parse_args():
     parser.add_argument("--multi", choices=["simultaneous", "independent_avg"],
                         default="simultaneous",
                         help="Multi-neighbor formulation for the 2D slice registration (default: simultaneous).")
+    parser.add_argument("--fix-slices", type=int, nargs="+", default=None, dest="fix_slices",
+                        metavar="IDX",
+                        help="Indices of slices to keep fixed during slice registration (new indices).")
     parser.add_argument("--no-deformable", action="store_true",
                         help="Skip the 2D deformable slice-refinement step (rigid + affine only).")
     parser.add_argument("--no-deformable-3d", action="store_true",
@@ -139,34 +142,34 @@ def main():
     chains_2d = [[] for _ in range(len(polylines_raw))]
 
     if run_2d:
-        print('Between slices registration (contour to contour):')
+        print('\nBetween slices registration (contour to contour):')
 
-        print("  - rigid...", end=" ")
+        print("  - rigid...", end="\n" if verbose else " ", flush=True)
         t = time.time()
         reg = polymorpheo.register_slices(
             "rigid", propag=args.propag, multi=args.multi,
             init="centroid", bidir=bidir,
             xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
         )
-        polylines_defo, transfos = reg.compute(polylines_defo)
+        polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
         for chain, ts in zip(chains_2d, transfos):
             chain.extend(ts)
-        print("done in ", time.time() - t, " s.")
+        print(f"done in {time.time() - t:.2f} s.")
 
-        print("  - affine...", end=" ")
+        print("  - affine...", end="\n" if verbose else " ", flush=True)
         t = time.time()
         reg = polymorpheo.register_slices(
             "affine", propag=args.propag, multi=args.multi,
             init="identity", bidir=bidir,
             xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
         )
-        polylines_defo, transfos = reg.compute(polylines_defo)
+        polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
         for chain, ts in zip(chains_2d, transfos):
             chain.extend(ts)
-        print("done in ", time.time() - t, " s.")
+        print(f"done in {time.time() - t:.2f} s.")
 
         if not args.no_deformable:
-            print("  - deformable...", end=" ")
+            print("  - deformable...", end="\n" if verbose else " ", flush=True)
             t = time.time()
             fit_fun = energy.point2point(agg="mean", bidir=bidir)
             regul_fun = energy.grad_disp(l_norm=2)
@@ -177,10 +180,10 @@ def main():
                 int_steps=16, tol=1e-5,
                 xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
             )
-            polylines_defo, transfos = reg.compute(polylines_defo)
+            polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
             for chain, ts in zip(chains_2d, transfos):
                 chain.extend(ts)
-        print("done in ", time.time() - t, " s.")
+            print(f"done in {time.time() - t:.2f} s.")
 
     pts_micro, simps_micro = utils.polylines_2d_3d(polylines_defo, 2, z_coords)
 
@@ -198,10 +201,11 @@ def main():
             fig = plots.plot_obj(pts_micro, simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
             fig.show()
 
-        print("  - cube init...", end=" ")
+        print("  - cube init...", end="\n" if verbose else " ", flush=True)
         t = time.time()
         pts_micro_init, lin_cube, trans_cube = register.init_affcube(pts_mri, pts_micro, verbose=verbose)
-        print("done in ", time.time() - t, " s, dist:", utils.chamfer(pts_micro_init, pts_mri))
+        dt = time.time() - t
+        print(f"done in {dt:.2f} s, dist: {utils.chamfer(pts_micro_init, pts_mri):.4f}")
 
         if args.plot:
             fig = plots.plot_obj(pts_mri, simps_mri)
@@ -213,11 +217,12 @@ def main():
         cube_transfo.set_params(lin_cube, trans_cube)
         transfos_3d = [cube_transfo]
 
-        print("  - affine...", end=" ")
+        print("  - affine...", end="\n" if verbose else " ", flush=True)
         t = time.time()
         reg_aff3d = register.reg_linear(niter=args.icp_niter3d, transfo="affine", verbose=verbose)
         transfo_aff3d, mesh_micro = reg_aff3d.compute(mesh_mri, mesh_micro)
-        print("done in ", time.time() - t, " s, dist:", utils.chamfer(mesh_micro[0], pts_mri))
+        dt = time.time() - t
+        print(f"done in {dt:.2f} s, dist: {utils.chamfer(mesh_micro[0], pts_mri):.4f}")
         transfos_3d.append(transfo_aff3d)
         if args.plot:
             fig = plots.plot_obj(pts_mri, simps_mri)
@@ -229,8 +234,7 @@ def main():
                 fit_fun = energy.point2plane(agg="mean", alpha=-2, scale=0.01, bidir=True)
                 regul_fun = energy.alap(transfo="similarity", l_norm=2)
                 regul_fun.set_neighs(mesh_micro[1], mesh_micro[0].shape[0])
-                print("  - deformable...", end=" ")
-                t = time.time()
+                print("  - deformable...", end="\n" if verbose else " ", flush=True)
                 reg_defo = register.reg_deformable(
                     niter=args.niter3d, fit_fun=fit_fun, regul_fun=regul_fun,
                     lr=lr, wreg=wreg, sigma=sigma, int_steps=8, rk=2, cpts_ratio=cpts_ratio,
@@ -238,7 +242,8 @@ def main():
                 )
                 t = time.time()
                 transfo_defo3d, mesh_micro, loss = reg_defo.compute(mesh_mri, mesh_micro)
-                print("done in ", time.time() - t, " s, dist:", utils.chamfer(mesh_micro[0], pts_mri))
+                dt = time.time() - t
+                print(f"done in {dt:.2f} s, dist: {utils.chamfer(mesh_micro[0], pts_mri):.4f}")
                 transfos_3d.append(transfo_defo3d)
                 if args.plot:
                     fig = plots.plot_obj(pts_mri, simps_mri)
@@ -254,7 +259,7 @@ def main():
 
     npz_out = outdir / f"{name}_deformed.npz"
     np.savez(npz_out, pts=final_pts, simps=np.array(simps_micro))
-    print(f"Saved: {npz_out}")
+    print(f"\nSaved: {npz_out}")
 
     pkl_out = outdir / f"{name}_transfos.pkl"
     with open(pkl_out, "wb") as f:

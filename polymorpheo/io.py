@@ -6,10 +6,6 @@ import numpy as np
 import polymorpheo.plots as plots
 import polymorpheo.utils as utils
 
-from .log import get_logger
-
-logger = get_logger(__name__)
-
 
 class io:
 
@@ -38,12 +34,13 @@ class io:
         self.xlim = np.min(scaled[:, 0]), np.max(scaled[:, 0])
         self.ylim = np.min(scaled[:, 1]), np.max(scaled[:, 1])
 
-        logger.info("Loading contours from %s", files)
         polylines = []
         z_coords = []
+        new_z = 0
+        print('Loading slices:')
         for z in range(nslice):
-            logger.debug("processing slice index=%d", z)
             polyline = []
+            print('  - idx: ' + str(z) + ' ->', end=' ')
             for l in range(self.nlabs):
                 opts = opts_lists[l][z]
                 if opts is None:
@@ -55,6 +52,7 @@ class io:
                 polyline.append(polyline_l)
 
             if len(polyline) == 0:
+                print('X')
                 continue
 
             pts, simps, _, labs = utils.concat_contours(polyline)
@@ -62,9 +60,10 @@ class io:
 
             polylines.append(polyline)
             z_coords.append(z * self.spacing[2])
+            print(new_z)
+            new_z += 1
 
             if plot:
-                logger.info("Plotting slice %d/%d", z + 1, nslice)
                 plots.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
                 plt.title('slice ' + str(z))
                 plt.show()
