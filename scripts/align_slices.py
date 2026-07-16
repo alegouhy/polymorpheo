@@ -14,7 +14,7 @@ import numpy as np
 
 import polymorpheo
 import polymorpheo.energy as energy
-import polymorpheo.plot as plot
+import polymorpheo.plots as plots
 import polymorpheo.utils as utils
 from polymorpheo.log import configure_logging
 
@@ -130,7 +130,7 @@ def main():
     print(f"Saved: {npz_out}")
 
     if args.plot:
-        plot.plot_contour_stack([polylines_raw, polylines], z_coords, labels=["raw", "aligned"])
+        plots.plot_contour_stack([polylines_raw, polylines], z_coords, labels=["raw", "aligned"])
 
     if args.mesh:
         mesher = polymorpheo.bridge_contours(thr_conn=0.3, sealed=True)

@@ -606,7 +606,7 @@ def bridge_contours(opts_list, z_coords, thr_conn=1 / 3, greedy=False, sealed=Tr
 
     nodes_list, links_list = build_graph_conn(opts_list, thr_conn)
     if debug:
-        from polymorpheo.plot import plot_graph_conn, plot_opts
+        from polymorpheo.plots import plot_graph_conn, plot_opts
         plot_graph_conn(nodes_list, links_list)
 
     if sealed:
@@ -668,7 +668,7 @@ def bridge_contours(opts_list, z_coords, thr_conn=1 / 3, greedy=False, sealed=Tr
         n = len(opts_1_proc)
 
         if debug:
-            from polymorpheo.plot import plot_opts
+            from polymorpheo.plots import plot_opts
             plt.subplot(2, 2, 1)
             for o, opt in enumerate(opts_1):
                 plot_opts(opt, col=cols[o], markersize=1)
@@ -688,7 +688,7 @@ def bridge_contours(opts_list, z_coords, thr_conn=1 / 3, greedy=False, sealed=Tr
             opts_2k = np.hstack([opts_2k, np.full((opts_2k.shape[0], 1), z_coords[i + 1])])
 
             if debug:
-                from polymorpheo.plot import plot_opts
+                from polymorpheo.plots import plot_opts
                 plt.subplot(2, 2, 3)
                 plot_opts(opts_1k, col=cols[k], markersize=1)
                 plt.subplot(2, 2, 4)

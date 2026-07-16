@@ -16,7 +16,7 @@ import numpy as np
 
 import polymorpheo
 import polymorpheo.energy as energy
-import polymorpheo.plot as plot
+import polymorpheo.plots as plots
 import polymorpheo.register as register
 import polymorpheo.transfo as transfo_ops
 import polymorpheo.utils as utils
@@ -33,10 +33,15 @@ def parse_args():
     )
     parser.add_argument("micro_input", type=Path,
                         help="Input NPZ file containing the micro slice contour series.")
-    parser.add_argument("mri_input", type=Path,
-                        help="Input MRI surface mesh (.ply, .obj or .vtp).")
+    parser.add_argument("mri_input", type=Path, nargs="?", default=None,
+                        help="Input MRI surface mesh (.ply, .obj or .vtp). "
+                             "Required unless --stage 2d.")
     parser.add_argument("--outdir", "-o", type=Path, required=True,
                         help="Output directory.")
+    parser.add_argument("--stage", choices=["both", "2d", "3d"], default="both",
+                        help="Which registration stage(s) to run: 'both' (default), "
+                             "'2d' (micro slice registration only), "
+                             "'3d' (micro->mri 3D registration only, no slice registration).")
     parser.add_argument("--spacing", "-s", type=float, nargs=3,
                         default=[0.1, 0.1, 1.25], metavar=("SX", "SY", "SZ"),
                         help="Pixel/voxel spacing in x, y, z (default: 0.1 0.1 1.25).")
@@ -74,22 +79,32 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+
     configure_logging(level=logging.INFO if args.verbose else logging.WARNING)
+
+    run_2d = args.stage in ("both", "2d")
+    run_3d = args.stage in ("both", "3d")
 
     micro_path = args.micro_input.resolve()
     if not micro_path.exists():
         print(f"Error: file not found: {micro_path}", file=sys.stderr)
         sys.exit(1)
 
-    mri_path = args.mri_input.resolve()
-    if not mri_path.exists():
-        print(f"Error: file not found: {mri_path}", file=sys.stderr)
-        sys.exit(1)
+    mri_path = None
+    if run_3d:
+        if args.mri_input is None:
+            print("Error: mri_input is required unless --stage 2d.", file=sys.stderr)
+            sys.exit(1)
+        mri_path = args.mri_input.resolve()
+        if not mri_path.exists():
+            print(f"Error: file not found: {mri_path}", file=sys.stderr)
+            sys.exit(1)
 
-    schedule = [args.lr3d, args.wreg3d, args.sigma3d, args.cpts_ratio3d]
-    if len({len(s) for s in schedule}) > 1:
-        print("Error: --lr3d, --wreg3d, --sigma3d and --cpts-ratio3d must have the same length.", file=sys.stderr)
-        sys.exit(1)
+        schedule = [args.lr3d, args.wreg3d, args.sigma3d, args.cpts_ratio3d]
+        if len({len(s) for s in schedule}) > 1:
+            print("Error: --lr3d, --wreg3d, --sigma3d and --cpts-ratio3d must have the same length.", file=sys.stderr)
+            sys.exit(1)
 
     outdir = args.outdir.resolve()
     outdir.mkdir(parents=True, exist_ok=True)
@@ -112,105 +127,133 @@ def main():
 
     polylines_raw, z_coords = micro_io.load()
 
-    mri_poly = utils.read_vtkpoly(str(mri_path))
-    pts_mri, simps_mri = utils.vtkpoly2mesh(mri_poly)[:2]
-    normals_mri = utils.normals_mesh(pts_mri, simps_mri)
+    if run_3d:
+        mri_poly = utils.read_vtkpoly(str(mri_path))
+        pts_mri, simps_mri = utils.vtkpoly2mesh(mri_poly)[:2]
+        normals_mri = utils.normals_mesh(pts_mri, simps_mri)
 
 
     # --- micro 2D slice registration ---
 
+    polylines_defo = polylines_raw
     chains_2d = [[] for _ in range(len(polylines_raw))]
 
-    reg = polymorpheo.register_slices(
-        "rigid", propag=args.propag, multi=args.multi,
-        init="centroid", bidir=bidir,
-        xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
-    )
-    polylines_defo, transfos = reg.compute(polylines_raw)
-    for chain, ts in zip(chains_2d, transfos):
-        chain.extend(ts)
+    if run_2d:
+        print('Between slices registration (contour to contour):')
 
-    reg = polymorpheo.register_slices(
-        "affine", propag=args.propag, multi=args.multi,
-        init="identity", bidir=bidir,
-        xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
-    )
-    polylines_defo, transfos = reg.compute(polylines_defo)
-    for chain, ts in zip(chains_2d, transfos):
-        chain.extend(ts)
-
-    if not args.no_deformable:
-        fit_fun = energy.point2point(agg="mean", bidir=bidir)
-        regul_fun = energy.grad_disp(l_norm=2)
+        print("  - rigid...", end=" ")
+        t = time.time()
         reg = polymorpheo.register_slices(
-            "deformable", propag=args.propag, multi=args.multi,
-            fit_fun=fit_fun, regul_fun=regul_fun,
-            niter=1, icp_niter=50, lr=1e-2, wreg=5e-1, sigma=1e-1,
-            int_steps=16, tol=1e-5,
+            "rigid", propag=args.propag, multi=args.multi,
+            init="centroid", bidir=bidir,
             xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
         )
         polylines_defo, transfos = reg.compute(polylines_defo)
         for chain, ts in zip(chains_2d, transfos):
             chain.extend(ts)
+        print("done in ", time.time() - t, " s.")
+
+        print("  - affine...", end=" ")
+        t = time.time()
+        reg = polymorpheo.register_slices(
+            "affine", propag=args.propag, multi=args.multi,
+            init="identity", bidir=bidir,
+            xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
+        )
+        polylines_defo, transfos = reg.compute(polylines_defo)
+        for chain, ts in zip(chains_2d, transfos):
+            chain.extend(ts)
+        print("done in ", time.time() - t, " s.")
+
+        if not args.no_deformable:
+            print("  - deformable...", end=" ")
+            t = time.time()
+            fit_fun = energy.point2point(agg="mean", bidir=bidir)
+            regul_fun = energy.grad_disp(l_norm=2)
+            reg = polymorpheo.register_slices(
+                "deformable", propag=args.propag, multi=args.multi,
+                fit_fun=fit_fun, regul_fun=regul_fun,
+                niter=1, icp_niter=50, lr=1e-2, wreg=5e-1, sigma=1e-1,
+                int_steps=16, tol=1e-5,
+                xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
+            )
+            polylines_defo, transfos = reg.compute(polylines_defo)
+            for chain, ts in zip(chains_2d, transfos):
+                chain.extend(ts)
+        print("done in ", time.time() - t, " s.")
 
     pts_micro, simps_micro = utils.polylines_2d_3d(polylines_defo, 2, z_coords)
 
 
     # --- micro -> mri 3D registration ---
 
-    mesh_mri = pts_mri, None, normals_mri, None
+    transfos_3d = []
 
-    if args.plot:
-        fig = plot.plot_obj(pts_mri, simps_mri)
-        fig = plot.plot_obj(pts_micro, simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
-        fig.show()
+    if run_3d:
+        print('\nSlices to mesh registration (contours to surface mesh):')
+        mesh_mri = pts_mri, None, normals_mri, None
 
-    pts_micro_init, lin_cube, trans_cube = register.init_affcube(pts_mri, pts_micro, verbose=verbose)
-    print("cube init  -  dist:", utils.chamfer(pts_micro_init, pts_mri))
-    if args.plot:
-        fig = plot.plot_obj(pts_mri, simps_mri)
-        fig = plot.plot_obj(pts_micro_init, simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
-        fig.show()
-    mesh_micro = pts_micro_init, simps_micro, None, None
+        if args.plot:
+            fig = plots.plot_obj(pts_mri, simps_mri)
+            fig = plots.plot_obj(pts_micro, simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+            fig.show()
 
-    cube_transfo = transfo_ops.affine()
-    cube_transfo.set_params(lin_cube, trans_cube)
-    transfos_3d = [cube_transfo]
+        print("  - cube init...", end=" ")
+        t = time.time()
+        pts_micro_init, lin_cube, trans_cube = register.init_affcube(pts_mri, pts_micro, verbose=verbose)
+        print("done in ", time.time() - t, " s, dist:", utils.chamfer(pts_micro_init, pts_mri))
 
-    reg_aff3d = register.reg_linear(niter=args.icp_niter3d, transfo="affine", verbose=verbose)
-    t = time.time()
-    transfo_aff3d, mesh_micro = reg_aff3d.compute(mesh_mri, mesh_micro)
-    print("affine  -  dist:", utils.chamfer(mesh_micro[0], pts_mri), ",  time:", time.time() - t)
-    transfos_3d.append(transfo_aff3d)
-    if args.plot:
-        fig = plot.plot_obj(pts_mri, simps_mri)
-        fig = plot.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
-        fig.show()
+        if args.plot:
+            fig = plots.plot_obj(pts_mri, simps_mri)
+            fig = plots.plot_obj(pts_micro_init, simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+            fig.show()
+        mesh_micro = pts_micro_init, simps_micro, None, None
 
-    if not args.no_deformable_3d:
-        for lr, wreg, sigma, cpts_ratio in zip(*schedule):
-            fit_fun = energy.point2plane(agg="mean", alpha=-2, scale=0.01, bidir=True)
-            regul_fun = energy.alap(transfo="similarity", l_norm=2)
-            regul_fun.set_neighs(mesh_micro[1], mesh_micro[0].shape[0])
-            reg_defo = register.reg_deformable(
-                niter=args.niter3d, fit_fun=fit_fun, regul_fun=regul_fun,
-                lr=lr, wreg=wreg, sigma=sigma, int_steps=8, rk=2, cpts_ratio=cpts_ratio,
-                verbose=verbose,
-            )
-            t = time.time()
-            transfo_defo3d, mesh_micro, loss = reg_defo.compute(mesh_mri, mesh_micro)
-            print("deformable  -  dist:", utils.chamfer(mesh_micro[0], pts_mri), ",  time:", time.time() - t)
-            transfos_3d.append(transfo_defo3d)
-            if args.plot:
-                fig = plot.plot_obj(pts_mri, simps_mri)
-                fig = plot.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
-                fig.show()
+        cube_transfo = transfo_ops.affine()
+        cube_transfo.set_params(lin_cube, trans_cube)
+        transfos_3d = [cube_transfo]
+
+        print("  - affine...", end=" ")
+        t = time.time()
+        reg_aff3d = register.reg_linear(niter=args.icp_niter3d, transfo="affine", verbose=verbose)
+        transfo_aff3d, mesh_micro = reg_aff3d.compute(mesh_mri, mesh_micro)
+        print("done in ", time.time() - t, " s, dist:", utils.chamfer(mesh_micro[0], pts_mri))
+        transfos_3d.append(transfo_aff3d)
+        if args.plot:
+            fig = plots.plot_obj(pts_mri, simps_mri)
+            fig = plots.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+            fig.show()
+
+        if not args.no_deformable_3d:
+            for lr, wreg, sigma, cpts_ratio in zip(*schedule):
+                fit_fun = energy.point2plane(agg="mean", alpha=-2, scale=0.01, bidir=True)
+                regul_fun = energy.alap(transfo="similarity", l_norm=2)
+                regul_fun.set_neighs(mesh_micro[1], mesh_micro[0].shape[0])
+                print("  - deformable...", end=" ")
+                t = time.time()
+                reg_defo = register.reg_deformable(
+                    niter=args.niter3d, fit_fun=fit_fun, regul_fun=regul_fun,
+                    lr=lr, wreg=wreg, sigma=sigma, int_steps=8, rk=2, cpts_ratio=cpts_ratio,
+                    verbose=verbose,
+                )
+                t = time.time()
+                transfo_defo3d, mesh_micro, loss = reg_defo.compute(mesh_mri, mesh_micro)
+                print("done in ", time.time() - t, " s, dist:", utils.chamfer(mesh_micro[0], pts_mri))
+                transfos_3d.append(transfo_defo3d)
+                if args.plot:
+                    fig = plots.plot_obj(pts_mri, simps_mri)
+                    fig = plots.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+                    fig.show()
+
+        final_pts = np.array(mesh_micro[0])
+    else:
+        final_pts = np.array(pts_micro)
 
 
     # --- save ---
 
     npz_out = outdir / f"{name}_deformed.npz"
-    np.savez(npz_out, pts=np.array(mesh_micro[0]), simps=np.array(simps_micro))
+    np.savez(npz_out, pts=final_pts, simps=np.array(simps_micro))
     print(f"Saved: {npz_out}")
 
     pkl_out = outdir / f"{name}_transfos.pkl"
@@ -218,9 +261,9 @@ def main():
         pickle.dump({"z_coords": np.array(z_coords), "transfos_2d": chains_2d, "transfos_3d": transfos_3d}, f)
     print(f"Saved: {pkl_out}")
 
-    if args.plot:
-        fig = plot.plot_obj(pts_mri, simps_mri)
-        fig = plot.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+    if args.plot and run_3d:
+        fig = plots.plot_obj(pts_mri, simps_mri)
+        fig = plots.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
         fig.show()
 
 

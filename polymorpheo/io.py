@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-import polymorpheo.plot as plot
+import polymorpheo.plots as plots
 import polymorpheo.utils as utils
 
 from .log import get_logger
@@ -65,7 +65,7 @@ class io:
 
             if plot:
                 logger.info("Plotting slice %d/%d", z + 1, nslice)
-                plot.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
+                plots.plot_contour(polyline, xlim=self.xlim, ylim=self.ylim)
                 plt.title('slice ' + str(z))
                 plt.show()
 

@@ -16,7 +16,7 @@ import numpy as np
 import polymorpheo.energy as energy
 import polymorpheo.register as register
 import polymorpheo.transfo as transfo_ops
-import polymorpheo.plot as plot
+import polymorpheo.plots as plots
 import polymorpheo.utils as utils
 
 # %%
@@ -47,8 +47,8 @@ ref_contour = utils.concat_contours((ref_contour, ref_contour_2))
 
 plt.figure(dpi=300)
 plt.subplot(2, 3, 1)
-plot.plot_contour(ref_contour)
-plot.plot_contour(mov_contour)
+plots.plot_contour(ref_contour)
+plots.plot_contour(mov_contour)
 plt.title("raw")
 
 
@@ -65,8 +65,8 @@ reg_rig = register.reg_linear(
 rig, moved_contour_rig = reg_rig.compute(ref_contour, mov_contour)
 
 plt.subplot(2, 3, 2)
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour(moved_contour_rig, col=[0, 0, 1])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour(moved_contour_rig, col=[0, 0, 1])
 plt.title("rigid")
 # plt.show()
 
@@ -82,8 +82,8 @@ reg_aff = register.reg_linear(
 aff, moved_contour_aff = reg_aff.compute(ref_contour, moved_contour_rig)
 
 plt.subplot(2, 3, 3)
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour(moved_contour_aff, col=[0, 0, 1])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour(moved_contour_aff, col=[0, 0, 1])
 plt.title("affine")
 # plt.show()
 
@@ -98,8 +98,8 @@ reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=
 _, moved_contour_quad = reg_poly.compute(ref_contour, moved_contour_aff)
 
 plt.subplot(2, 3, 4)
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour(moved_contour_quad, col=[0, 0, 1])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour(moved_contour_quad, col=[0, 0, 1])
 plt.title("quadratic")
 # plt.show()
 
@@ -114,8 +114,8 @@ reg_poly = register.reg_polynom(niter=niter, degree=degree, init="identity", se=
 _, moved_contour_cube = reg_poly.compute(ref_contour, moved_contour_aff)
 
 plt.subplot(2, 3, 5)
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour(moved_contour_cube, col=[0, 0, 1])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour(moved_contour_cube, col=[0, 0, 1])
 plt.title("cubic")
 
 # %% non-rigid ICP
@@ -152,8 +152,8 @@ for i in range(len(lr)):
     losses.append(loss)
 
 plt.subplot(2, 3, 6)
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour(moved_contour_defo, col=[0, 0, 1])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour(moved_contour_defo, col=[0, 0, 1])
 plt.title("deformable")
 
 
@@ -175,8 +175,8 @@ moved_pts_chain = transfo_ops.apply_transfo_chain(chain, mov_pts)
 print("max diff:", jnp.max(jnp.abs(moved_pts_chain - jnp.array(moved_contour_defo[0]))))
 
 plt.figure()
-plot.plot_contour(ref_contour, col=[1, 0, 0])
-plot.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0, 0, 1])
-plot.plot_contour(moved_contour_defo, col=[0, 1, 0])
+plots.plot_contour(ref_contour, col=[1, 0, 0])
+plots.plot_contour((moved_pts_chain, mov_simps, None, mov_labs), col=[0, 0, 1])
+plots.plot_contour(moved_contour_defo, col=[0, 1, 0])
 plt.title("chain (blue) vs sequential (green)")
 plt.show()

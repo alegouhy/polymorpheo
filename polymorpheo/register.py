@@ -11,7 +11,7 @@ from jax import lax
 
 import polymorpheo.energy as energy
 import polymorpheo.transfo as transfo_ops
-import polymorpheo.plot as plot
+import polymorpheo.plots as plots
 import polymorpheo.utils as utils
 
 from .log import get_logger
@@ -205,8 +205,8 @@ class reg_linear:
             if self.plot:
                 if k % self.plot == 0:
                     for k_ref, ref_mesh in enumerate(ref_mesh_list):
-                        plot.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
-                    plot.plot_contour(moved_mesh, col=_COL_MOV)
+                        plots.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plots.plot_contour(moved_mesh, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
                     plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
@@ -303,8 +303,8 @@ class reg_polynom:
             if self.plot:
                 if k % self.plot == 0:
                     for k_ref, ref_mesh in enumerate(ref_mesh_list):
-                        plot.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
-                    plot.plot_contour(moved_mesh, col=_COL_MOV)
+                        plots.plot_contour(ref_mesh, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plots.plot_contour(moved_mesh, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
                     plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
@@ -484,8 +484,8 @@ class reg_deformable:
                     else:
                         refs_mesh_plot_list  = ref_mesh_list.copy()
                     for k_ref, ref_m in enumerate(refs_mesh_plot_list):
-                        plot.plot_contour(ref_m, col=_COL_REFS[k_ref % len(_COL_REFS)])
-                    plot.plot_contour(moved_mesh_plot, col=_COL_MOV)
+                        plots.plot_contour(ref_m, col=_COL_REFS[k_ref % len(_COL_REFS)])
+                    plots.plot_contour(moved_mesh_plot, col=_COL_MOV)
                     plt.xlim(self.xlim)
                     plt.ylim(self.ylim)
                     plt.title((f"{self.title} - " if self.title else "") + f"it: {k}", fontsize=7)
