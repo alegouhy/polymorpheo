@@ -166,7 +166,8 @@ class alap:
         n_neigh = jnp.sum(mask)
         mask = mask.astype(jnp.float32)
 
-        safe_idx = jnp.maximum(neigh_idx, 0)
+        safe_idx = jnp.concatenate([vertex_idx[None], jnp.maximum(neigh_idx, 0)])
+        mask = jnp.concatenate([jnp.ones((1,), mask.dtype), mask])
 
         pts_neigh = pts[safe_idx]
         disp_neigh = disp[safe_idx]
@@ -175,7 +176,7 @@ class alap:
         lin, trans = self.opti_transfo_fun.fit(moved_neigh, pts_neigh, weights=mask)
 
         reconstructed = (pts_neigh @ lin.T) + trans
-        diff = moved_neigh - reconstructed
+        diff = jnp.where(mask[:, None] > 0, moved_neigh - reconstructed, 0.0)
 
         if self.l_norm == 2:
             energy_per_neighbor = jnp.sum(diff**2, axis=-1)
@@ -185,7 +186,7 @@ class alap:
         masked_energy = energy_per_neighbor * mask
         total_energy = jnp.sum(masked_energy)
 
-        return jnp.where(n_neigh > 0, total_energy / n_neigh, 0.0)
+        return jnp.where(n_neigh > 0, total_energy / (n_neigh + 1), 0.0)
 
 
 def energy_total_fn(theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wreg, polytransfo):

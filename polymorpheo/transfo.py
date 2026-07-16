@@ -2,6 +2,7 @@ from itertools import product
 
 import jax
 import jax.numpy as jnp
+import jax.lax as lax
 import numpy as np
 from scipy.linalg import expm, logm
 from scipy.stats.qmc import Sobol
@@ -260,14 +261,14 @@ class init_transfo:
 class opti_linear_transfo:
     def __init__(self, transfo, se=True):  #  gamma=1e-5
         """
-        transfo: 'rigid' or 'affine'
+        transfo: 'translation', 'rigid', 'similarity' or 'affine'
         """
 
         self.transfo = transfo
         self.se = se
         # self.gamma = gamma
 
-    def fit(self, ref_pts, mov_pts, ref_pts_mu=None, mov_pts_mu=None, weights=None, eps=1e-9):
+    def fit(self, ref_pts, mov_pts, ref_pts_mu=None, mov_pts_mu=None, weights=None, eps=1e-9, tol=1e-6):
         """
         Assumes that ref_pts and mov_pts are paired sets of points.
         """
@@ -283,8 +284,9 @@ class opti_linear_transfo:
         if mov_pts_mu is None:
             mov_pts_mu = jnp.sum(mov_pts * weights[:, None], axis=0)
 
-        self.ref_pts_mu = ref_pts_mu
-        self.mov_pts_mu = mov_pts_mu
+
+        if self.transfo == "translation":
+            return jnp.eye(ndims), ref_pts_mu - mov_pts_mu
 
         sqrt_weights = jnp.sqrt(weights[:, None])
         ref_pts_wbar = (ref_pts - ref_pts_mu) * sqrt_weights
@@ -292,7 +294,7 @@ class opti_linear_transfo:
 
         if self.transfo in ("rigid", "similarity"):
             cov = ref_pts_wbar.T @ mov_pts_wbar
-            U, _, Vt = jnp.linalg.svd(cov, full_matrices=False)
+            U, s, Vt = self.stable_svd(cov, ndims, eps, tol)
             S = jnp.eye(ndims)
 
             if self.transfo == "similarity":
@@ -301,8 +303,9 @@ class opti_linear_transfo:
                 S = s * S
 
         elif self.transfo == "affine":
-            A, _, _, _ = jnp.linalg.lstsq(mov_pts_wbar, ref_pts_wbar, rcond=None)
-            U, S, Vt = jnp.linalg.svd(A.T, full_matrices=False)
+            MtM = mov_pts_wbar.T @ mov_pts_wbar
+            A = jnp.linalg.solve(MtM + tol * jnp.eye(ndims), mov_pts_wbar.T @ ref_pts_wbar)
+            U, S, Vt = self.stable_svd(A.T, ndims, eps, tol)
             S = jnp.diag(S)
 
         if self.se:
@@ -310,13 +313,20 @@ class opti_linear_transfo:
             S = S.at[-1, -1].set(S[-1, -1] * det_sign)
 
         A = (U @ S) @ Vt
-
         t = ref_pts_mu - (mov_pts_mu @ A.T)
 
         return A, t
 
     def transform(self, A, t, mov_pts):
         return (mov_pts @ A.T) + t
+
+    def stable_svd(self, mat, ndims, eps, tol):
+        # guard against zero / repeated singular values (NaN-free backward pass)
+        healthy = jnp.linalg.norm(mat) > eps
+        mat = jnp.where(healthy, mat, jnp.eye(ndims))
+        mat = mat + tol * jnp.diag(1.0 + jnp.arange(ndims, dtype=mat.dtype))
+
+        return jnp.linalg.svd(mat, full_matrices=False)
 
 
 class polynom:
