@@ -89,7 +89,7 @@ def covs_header(ncomp):
 
 
 def save_csv(path, arr, header):
-    np.savetxt(path, arr, delimiter=",", header=header)
+    np.savetxt(path, arr, delimiter=",", header=header, comments="")
     print(f"Saved: {path}")
 
 
