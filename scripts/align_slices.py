@@ -54,12 +54,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def save_aligned_npz(polylines, z_coords, spacing, nslice_orig, out_path):
+def save_aligned_npz(polylines, slice_idx, spacing, nslice_orig, out_path):
     """Save aligned polylines back to the registered_contours NPZ format."""
     registered_contours = np.empty(nslice_orig, dtype=object)
 
-    for polyline, z in zip(polylines, z_coords):
-        z_idx = int(round(z / spacing[2]))
+    for polyline, z_idx in zip(polylines, slice_idx):
         pts, simps = np.array(polyline[0]), np.array(polyline[1])
         contours = utils.contours2opts(pts, simps, closed_only=False)
         registered_contours[z_idx] = [c / spacing[:2] for c in contours]
@@ -85,8 +84,6 @@ def main():
     multi = args.multi
     verbose = args.verbose
     bidir = True
-
-    nslice_orig = len(np.load(input_path, allow_pickle=True)["registered_contours"])
 
     io_obj = polymorpheo.io(
         datadir=str(input_path.parent),
@@ -126,7 +123,7 @@ def main():
         polylines, _ = reg.compute(polylines)
 
     npz_out = outdir / f"{name}_aligned.npz"
-    save_aligned_npz(polylines, z_coords, spacing, nslice_orig, npz_out)
+    save_aligned_npz(polylines, io_obj.slice_idx, spacing, io_obj.nslice, npz_out)
     print(f"Saved: {npz_out}")
 
     if args.plot:

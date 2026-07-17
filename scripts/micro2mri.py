@@ -56,7 +56,9 @@ def parse_args():
                         help="Multi-neighbor formulation for the 2D slice registration (default: simultaneous).")
     parser.add_argument("--fix-slices", type=int, nargs="+", default=None, dest="fix_slices",
                         metavar="IDX",
-                        help="Indices of slices to keep fixed during slice registration (new indices).")
+                        help="Slices to keep fixed during slice registration, as raw indices into "
+                             "the input NPZ (the same numbering io.load reports on the left of "
+                             "'idx: N -> M').")
     parser.add_argument("--no-deformable", action="store_true",
                         help="Skip the 2D deformable slice-refinement step (rigid + affine only).")
     parser.add_argument("--no-deformable-3d", action="store_true",
@@ -130,6 +132,20 @@ def main():
 
     polylines_raw, z_coords = micro_io.load()
 
+    # --fix-slices is given in raw NPZ indices, but register_slices addresses polylines by their
+    # position in the loaded series, which skips slices holding no contour. Map one to the other
+    # here so the raw numbering is the only one a caller ever sees.
+    fixed = None
+    if args.fix_slices is not None:
+        dense = {raw: i for i, raw in enumerate(micro_io.slice_idx)}
+        missing = [z for z in args.fix_slices if z not in dense]
+        if missing:
+            print(f"Error: slice(s) {missing} hold no contour or are out of range, so they are "
+                  f"not in the series (kept: {micro_io.slice_idx[0]}..{micro_io.slice_idx[-1]}).",
+                  file=sys.stderr)
+            sys.exit(1)
+        fixed = [dense[z] for z in args.fix_slices]
+
     if run_3d:
         mri_poly = utils.read_vtkpoly(str(mri_path))
         pts_mri, simps_mri = utils.vtkpoly2mesh(mri_poly)[:2]
@@ -151,7 +167,7 @@ def main():
             init="centroid", bidir=bidir,
             xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
         )
-        polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
+        polylines_defo, transfos = reg.compute(polylines_defo, fixed=fixed)
         for chain, ts in zip(chains_2d, transfos):
             chain.extend(ts)
         print(f"done in {time.time() - t:.2f} s.")
@@ -163,7 +179,7 @@ def main():
             init="identity", bidir=bidir,
             xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
         )
-        polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
+        polylines_defo, transfos = reg.compute(polylines_defo, fixed=fixed)
         for chain, ts in zip(chains_2d, transfos):
             chain.extend(ts)
         print(f"done in {time.time() - t:.2f} s.")
@@ -180,7 +196,7 @@ def main():
                 int_steps=16, tol=1e-5,
                 xlim=micro_io.xlim, ylim=micro_io.ylim, verbose=verbose,
             )
-            polylines_defo, transfos = reg.compute(polylines_defo, fixed=args.fix_slices)
+            polylines_defo, transfos = reg.compute(polylines_defo, fixed=fixed)
             for chain, ts in zip(chains_2d, transfos):
                 chain.extend(ts)
             print(f"done in {time.time() - t:.2f} s.")
