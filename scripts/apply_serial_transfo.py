@@ -25,12 +25,12 @@ def parse_args():
             "points or ellipsoids sharing the same slice/z layout, without re-running registration."
         )
     )
-    parser.add_argument("input", type=Path, nargs="?", default=None,
-                        help="Input NPZ file containing the contour series to transform "
-                             "(same slice/z layout as the original micro2mri.py input). "
-                             "Optional if --pts is given.")
     parser.add_argument("transfos", type=Path,
                         help="Transform chain pickle produced by micro2mri.py (<name>_transfos.pkl).")
+    parser.add_argument("--contours", type=Path, default=None,
+                        help="NPZ file containing a contour series to transform "
+                             "(same slice/z layout as the original micro2mri.py input). "
+                             "Optional if --pts is given.")
     parser.add_argument("--pts", type=Path, default=None,
                         help="Points to transform, as a single (npts, 2) or (npts, 3) array in a "
                              ".csv, .npy or .npz file, in pixel/voxel units. In 3D the third "
@@ -46,6 +46,9 @@ def parse_args():
     parser.add_argument("--orientation-only", action="store_true", dest="orientation_only",
                         help="Reorient the ellipsoids with PPD, preserving their eigenvalues, "
                              "instead of transporting the full covariance.")
+    parser.add_argument("--chunk-size", type=int, default=None, dest="chunk_size", metavar="N",
+                        help="Transform the --pts in blocks of at most N at a time to cap peak "
+                             "memory (default: all at once). Does not change the result.")
     parser.add_argument("--outdir", "-o", type=Path, required=True,
                         help="Output directory. Results mirror the --pts format: give a .csv and "
                              "you get <pts>_deformed.csv and <covs>_deformed.csv, otherwise a "
@@ -191,6 +194,25 @@ def transform_3d(pts, covs, chain_idx, transfos_2d, transfos_3d, orientation_onl
     return np.array(pts_final), np.array(utils.transform_ellipsoids(jac, covs, orientation_only))
 
 
+def run_chunked(n, chunk_size, transform):
+    # Push the rows through in blocks of at most chunk_size so the per-point JAX buffers never span
+    # the whole input at once. Each point is transformed independently of the others, so the chunk
+    # boundaries do not change the result. transform(sl) returns (pts, covs-or-None) for the rows in
+    # sl; the pieces concatenate back in order.
+    if not chunk_size or chunk_size >= n:
+        return transform(slice(0, n))
+
+    pts_parts, covs_parts = [], []
+    for start in range(0, n, chunk_size):
+        pts_part, covs_part = transform(slice(start, min(start + chunk_size, n)))
+        pts_parts.append(pts_part)
+        covs_parts.append(covs_part)
+    print(f"Transformed {n} points in {len(pts_parts)} chunks of up to {chunk_size}.")
+
+    covs_out = None if covs_parts[0] is None else np.concatenate(covs_parts)
+    return np.concatenate(pts_parts), covs_out
+
+
 def transform_pts(pts_path, covs_path, outdir, args, spacing, z_coords_ref, transfos_2d, transfos_3d):
     name = pts_path.stem
 
@@ -217,8 +239,11 @@ def transform_pts(pts_path, covs_path, outdir, args, spacing, z_coords_ref, tran
         chain_idx = match_slices(np.array([args.slice_idx * spacing[2]]), z_coords_ref)
         if chain_idx[0] < 0:
             fail(f"no matching transform for slice {args.slice_idx}.")
-        pts_final, covs_final = transform_2d(
-            pts, covs, transfos_2d[int(chain_idx[0])], args.orientation_only)
+        chain_2d = transfos_2d[int(chain_idx[0])]
+        pts_final, covs_final = run_chunked(
+            len(pts), args.chunk_size,
+            lambda s: transform_2d(pts[s], None if covs is None else covs[s],
+                                   chain_2d, args.orientation_only))
     else:
         if args.slice_idx is not None:
             fail("--slice only applies to 2D points; 3D points carry their slice in column 3.")
@@ -231,8 +256,10 @@ def transform_pts(pts_path, covs_path, outdir, args, spacing, z_coords_ref, tran
                   file=sys.stderr)
         pts, chain_idx = pts[keep], chain_idx[keep]
         covs = covs[keep] if covs is not None else None
-        pts_final, covs_final = transform_3d(
-            pts, covs, chain_idx, transfos_2d, transfos_3d, args.orientation_only)
+        pts_final, covs_final = run_chunked(
+            len(pts), args.chunk_size,
+            lambda s: transform_3d(pts[s], None if covs is None else covs[s],
+                                   chain_idx[s], transfos_2d, transfos_3d, args.orientation_only))
 
     pts_final = np.asarray(pts_final, dtype=float)
     covs_final = None if covs_final is None else np.asarray(utils.pack_sym(covs_final), dtype=float)
@@ -258,10 +285,12 @@ def main():
 
     if args.covs is not None and args.pts is None:
         fail("--covs needs --pts.")
-    if args.input is None and args.pts is None:
-        fail("nothing to transform, provide an input contour series and/or --pts.")
+    if args.chunk_size is not None and args.chunk_size <= 0:
+        fail("--chunk-size must be a positive integer.")
+    if args.contours is None and args.pts is None:
+        fail("nothing to transform, provide --contours and/or --pts.")
 
-    input_path = check_file(args.input.resolve()) if args.input else None
+    input_path = check_file(args.contours.resolve()) if args.contours else None
     pts_path = check_file(args.pts.resolve()) if args.pts else None
     covs_path = check_file(args.covs.resolve()) if args.covs else None
     transfos_path = check_file(args.transfos.resolve())
