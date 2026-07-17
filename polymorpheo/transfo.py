@@ -221,6 +221,45 @@ def apply_transfo_chain(transfo_list, pts, invert=False):
     return pts_moved
 
 
+def apply_transfo_chain_jacobian(transfo_list, pts, invert=False):
+    # Same composition as apply_transfo_chain, also accumulating the Jacobian of the composed
+    # transformation via the chain rule, each step being evaluated at the running position.
+    #  - transfo_list:      list of polytransfo or affine instances with parameters set via set_params().
+    #  - pts (npts, ndims): points at which to evaluate the composed transformation.
+    # Returns the final moved points (npts, ndims) and the composed Jacobian (npts, ndims, ndims).
+    # An empty chain yields the identity Jacobian.
+
+    ndims = pts.shape[1]
+    pts_moved = pts
+    jac = jnp.broadcast_to(jnp.eye(ndims)[None], (len(pts), ndims, ndims))
+
+    if invert:
+        for transfo in reversed(transfo_list):
+            transfo.invert()
+            jac = jnp.einsum("nij,njk->nik", transfo.jacobian(pts_moved), jac)
+            pts_moved = transfo.transform(pts_moved)
+            transfo.invert()
+    else:
+        for transfo in transfo_list:
+            jac = jnp.einsum("nij,njk->nik", transfo.jacobian(pts_moved), jac)
+            pts_moved = transfo.transform(pts_moved)
+
+    return pts_moved, jac
+
+
+def apply_transfo_chain_ellipsoids(transfo_list, centers, covs, invert=False, orientation_only=False):
+    # Evaluates the chain on a set of ellipsoids, transporting each covariance with the Jacobian
+    # of the composed transformation at its center.
+    #  - centers (n, ndims):       ellipsoid centers.
+    #  - covs    (n, ndims, ndims): covariance matrices (symmetric).
+    #  - orientation_only:         if True, use PPD reorientation.
+    # Returns new_centers (n, ndims), new_covs (n, ndims, ndims).
+
+    new_centers, jac = apply_transfo_chain_jacobian(transfo_list, centers, invert)
+
+    return new_centers, utils.transform_ellipsoids(jac, covs, orientation_only)
+
+
 class init_transfo:
     def __init__(self, init="identity"):
         """

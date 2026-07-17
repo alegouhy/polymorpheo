@@ -233,6 +233,34 @@ def pts_dist(pts1, pts2, l_norm=2):
 pts_dist = jax.jit(pts_dist, static_argnames=("l_norm",))
 
 
+def pack_sym(mats):
+    # Pack symmetric matrices into their upper triangle, row major.
+    # mats (..., ndims, ndims) -> (..., ndims * (ndims + 1) / 2), i.e. [xx, xy, yy] in 2D and
+    # [xx, xy, xz, yy, yz, zz] in 3D. Only the upper triangle is read.
+
+    i, j = np.triu_indices(mats.shape[-1])
+
+    return mats[..., i, j]
+
+
+def unpack_sym(flat):
+    # Inverse of pack_sym: rebuild full symmetric matrices from their packed upper triangle.
+    # flat (..., ndims * (ndims + 1) / 2) -> (..., ndims, ndims).
+
+    ncomp = flat.shape[-1]
+    ndims = int((np.sqrt(8 * ncomp + 1) - 1) / 2)
+    if ndims * (ndims + 1) // 2 != ncomp:
+        raise ValueError(f"{ncomp} is not a valid number of packed components "
+                         f"(expected 3 for 2D or 6 for 3D).")
+
+    i, j = np.triu_indices(ndims)
+    mats = np.zeros((*flat.shape[:-1], ndims, ndims))
+    mats[..., i, j] = flat
+    mats[..., j, i] = flat
+
+    return mats
+
+
 def transform_ellipsoids(jac, covs, orientation_only=False):
     # Transform a batch of ellipsoids (covariance matrices) by a batch of Jacobians.
     # jac  (n, ndims, ndims): Jacobian of the transformation at each ellipsoid center.
