@@ -4,6 +4,8 @@ import pickle
 import sys
 from pathlib import Path
 
+from tqdm.asyncio import tqdm
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -46,7 +48,7 @@ def parse_args():
     parser.add_argument("--orientation-only", action="store_true", dest="orientation_only",
                         help="Reorient the ellipsoids with PPD, preserving their eigenvalues, "
                              "instead of transporting the full covariance.")
-    parser.add_argument("--chunk-size", type=int, default=None, dest="chunk_size", metavar="N",
+    parser.add_argument("--chunk-size", type=int, default=1000, dest="chunk_size", metavar="N",
                         help="Transform the --pts in blocks of at most N at a time to cap peak "
                              "memory (default: all at once). Does not change the result.")
     parser.add_argument("--outdir", "-o", type=Path, required=True,
@@ -203,7 +205,7 @@ def run_chunked(n, chunk_size, transform):
         return transform(slice(0, n))
 
     pts_parts, covs_parts = [], []
-    for start in range(0, n, chunk_size):
+    for start in tqdm(range(0, n, chunk_size)):
         pts_part, covs_part = transform(slice(start, min(start + chunk_size, n)))
         pts_parts.append(pts_part)
         covs_parts.append(covs_part)
