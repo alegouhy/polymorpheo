@@ -62,7 +62,9 @@ def parse_args():
     parser.add_argument("--no-deformable", action="store_true",
                         help="Skip the 2D deformable slice-refinement step (rigid + affine only).")
     parser.add_argument("--no-deformable-3d", action="store_true",
-                        help="Skip the coarse-to-fine 3D deformable registration (cube-init + affine only).")
+                        help="Skip the coarse-to-fine 3D deformable registration (cube-init + optionally affine only).")
+    parser.add_argument("--no-affine-3d", action="store_true",
+                        help="Skip the 3D affine registration (cube-init + optionally deformable only).")
     parser.add_argument("--icp-niter3d", type=int, default=50,
                         help="Iterations for the 3D affine registration (default: 50).")
     parser.add_argument("--lr3d", type=float, nargs="+", default=[1e-2, 1e-2, 1e-3],
@@ -233,17 +235,18 @@ def main():
         cube_transfo.set_params(lin_cube, trans_cube)
         transfos_3d = [cube_transfo]
 
-        print("  - affine...", end="\n" if verbose else " ", flush=True)
-        t = time.time()
-        reg_aff3d = register.reg_linear(niter=args.icp_niter3d, transfo="affine", verbose=verbose)
-        transfo_aff3d, mesh_micro = reg_aff3d.compute(mesh_mri, mesh_micro)
-        dt = time.time() - t
-        print(f"done in {dt:.2f} s, dist: {utils.chamfer(mesh_micro[0], pts_mri):.4f}")
-        transfos_3d.append(transfo_aff3d)
-        if args.plot:
-            fig = plots.plot_obj(pts_mri, simps_mri)
-            fig = plots.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
-            fig.show()
+        if not args.no_affine_3d:
+            print("  - affine...", end="\n" if verbose else " ", flush=True)
+            t = time.time()
+            reg_aff3d = register.reg_linear(niter=args.icp_niter3d, transfo="affine", verbose=verbose)
+            transfo_aff3d, mesh_micro = reg_aff3d.compute(mesh_mri, mesh_micro)
+            dt = time.time() - t
+            print(f"done in {dt:.2f} s, dist: {utils.chamfer(mesh_micro[0], pts_mri):.4f}")
+            transfos_3d.append(transfo_aff3d)
+            if args.plot:
+                fig = plots.plot_obj(pts_mri, simps_mri)
+                fig = plots.plot_obj(mesh_micro[0], simps_micro, pts_col=(1, 0, 0), face_col=(1, 0.5, 0.5), fig=fig)
+                fig.show()
 
         if not args.no_deformable_3d:
             for lr, wreg, sigma, cpts_ratio in zip(*schedule):
