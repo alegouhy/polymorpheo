@@ -55,12 +55,13 @@ def load_meshes(ref_mesh, mov_mesh, normalise=True):
 # %%
 
 
-def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10, verbose=True):
+def init_affcube(ref_pts, mov_pts, do_scale=True, iso_scale=False, no_reflection=False, decimals=10, verbose=True):
 
     t = time.time()
     if verbose:
         print('brut force cube affine registration...', end='', flush=True)
 
+    ndims = ref_pts.shape[1]
     mov_pts_mu = jnp.mean(mov_pts, axis=0)
     ref_pts_mu = jnp.mean(ref_pts, axis=0)
     if do_scale:
@@ -71,6 +72,8 @@ def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10, verbose=True):
     lin_best = None
     moved_pts_best = None
 
+    axs = [[None]] * 3 if no_reflection else [[None, 0], [None, 1], [None, 2]]
+
     lins = []
     for angx in angles:
         rotx = utils.rot_mat(angx, 0, 3)
@@ -78,11 +81,11 @@ def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10, verbose=True):
             roty = utils.rot_mat(angy, 1, 3)
             for angz in angles:
                 rotz = utils.rot_mat(angz, 2, 3)
-                for axx in [None, 0]:
+                for axx in axs[0]:
                     reflx = utils.refl_mat(axx, 3)
-                    for axy in [None, 1]:
+                    for axy in axs[1]:
                         refly = utils.refl_mat(axy, 3)
-                        for axz in [None, 2]:
+                        for axz in axs[2]:
                             reflz = utils.refl_mat(axz, 3)
 
                             lin = rotx @ roty @ rotz @ reflx @ refly @ reflz
@@ -99,7 +102,10 @@ def init_affcube(ref_pts, mov_pts, do_scale=True, decimals=10, verbose=True):
 
         if do_scale:
             moved_pts_amp = jnp.max(moved_pts, axis=0) - jnp.min(moved_pts, axis=0)
-            scal = jnp.diag(ref_pts_amp / moved_pts_amp)
+            scal = ref_pts_amp / moved_pts_amp
+            if iso_scale:
+                scal = jnp.repeat(jnp.mean(scal), ndims)
+            scal = jnp.diag(scal)
             lin = lin @ scal
             trans = -mov_pts_mu @ lin.T + ref_pts_mu
             moved_pts = mov_pts @ lin.T + trans
