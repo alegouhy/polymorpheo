@@ -382,6 +382,18 @@ def normals_mesh(pts, simps, eps=1e-9):
     return vertex_normals
 
 
+def normals_mesh_jnp(pts, simps, eps=1e-9):
+
+    v0, v1, v2 = pts[simps[:, 0]], pts[simps[:, 1]], pts[simps[:, 2]]
+    face_normals = jnp.cross(v1 - v0, v2 - v0)  # area-weighted
+
+    vertex_normals = jnp.zeros_like(pts)
+    for k in range(3):
+        vertex_normals = vertex_normals.at[simps[:, k]].add(face_normals)
+
+    return vertex_normals / (jnp.linalg.norm(vertex_normals, axis=1, keepdims=True) + eps)
+
+
 def concat_contours(contours, z_coords=None):
     is_simps = contours[0][1] is not None
     is_normals = contours[0][2] is not None

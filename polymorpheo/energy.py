@@ -6,90 +6,106 @@ import polymorpheo.utils as utils
 
 
 class point2point:
+
     def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
+
         self.alpha = alpha
         self.scale = scale
         self.bidir = bidir
-        if agg == "max":
-            self.agg_fun = jnp.max
-        elif agg == "mean":
-            self.agg_fun = jnp.mean
+        self.agg = agg
 
-    def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None, ref_normals=None):
-        ref_pts_list = [ref_pts] if hasattr(ref_pts, "shape") else ref_pts
-        ref_labs_list = [ref_labs] if hasattr(ref_pts, "shape") else ref_labs
-        use_labs = (ref_labs_list is not None) and (mov_labs is not None)
+    def compute(self, ref_pts, mov_pts,
+                      ref_labs=None, mov_labs=None,
+                      ref_normals=None, mov_normals=None):
 
-        pts_dist = 0.0
-        if not use_labs:
-            for ref_pts in ref_pts_list:
-                dist = ref_pts[:, None, :] - mov_pts[None, :, :]
-                dist = jnp.sum(dist**2, axis=-1)
+        sq_dist = jnp.sum((ref_pts[:, None, :] - mov_pts[None, :, :]) ** 2, axis=-1)
+        sq_dist, valid = mask_labs(sq_dist, ref_labs, mov_labs)
 
-                dist_nn = jnp.min(dist, axis=0)
-                dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)
-                pts_dist += self.agg_fun(dist_nn)
-
-                if self.bidir:
-                    dist_nn = jnp.min(dist, axis=1)
-                    dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)
-                    pts_dist += self.agg_fun(dist_nn)
-
-        else:
-            for ref_pts, ref_labs in zip(ref_pts_list, ref_labs_list):
-                labs = jnp.intersect1d(mov_labs, ref_labs)
-                for lab in labs:
-                    ref_pts_lab = ref_pts[ref_labs == lab, :]
-                    mov_ind_lab = mov_labs == lab
-                    mov_pts_lab = mov_pts[mov_ind_lab, :]
-
-                    dist = ref_pts_lab[:, None, :] - mov_pts_lab[None, :, :]
-                    dist = jnp.sum(dist**2, axis=-1)
-
-                    dist_nn = jnp.min(dist, axis=0)
-                    dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)
-                    pts_dist += self.agg_fun(dist_nn)
-                    if self.bidir:
-                        dist_nn = jnp.min(dist, axis=1)
-                        dist_nn = robust_rho(dist_nn, alpha=self.alpha, scale=self.scale)
-                        pts_dist += self.agg_fun(dist_nn)
-
-        return pts_dist
-
-
-class point2plane:
-    def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
-        self.alpha = alpha
-        self.scale = scale
-        self.bidir = bidir
-        if agg == "max":
-            self.agg_fun = jnp.max
-        elif agg == "mean":
-            self.agg_fun = jnp.mean
-
-    def compute(self, ref_pts, mov_pts, ref_labs=None, mov_labs=None, ref_normals=None):
-        dist = ref_pts[:, None, :] - mov_pts[None, :, :]   # (nref, nmov, 3)
-        sq_dist = jnp.sum(dist**2, axis=-1)                # (nref, nmov)
-
-        # forward: each moving point → its nearest reference point
-        nn_idx = jnp.argmin(sq_dist, axis=0)               # (nmov,)
-        if ref_normals is not None:
-            diff = mov_pts - ref_pts[nn_idx]                # (nmov, 3)
-            proj = jnp.sum(diff * ref_normals[nn_idx], axis=-1) ** 2
-        else:
-            proj = jnp.min(sq_dist, axis=0)
-        proj = robust_rho(proj, alpha=self.alpha, scale=self.scale)
-        total = self.agg_fun(proj)
+        rho = robust_rho(jnp.min(sq_dist, axis=0), alpha=self.alpha, scale=self.scale)
+        total = agg_masked(rho, valid, 0, self.agg)
 
         if self.bidir:
-            # backward: each reference point → nearest moving point (point-to-point)
-            back = robust_rho(jnp.min(sq_dist, axis=1), alpha=self.alpha, scale=self.scale)
-            total = total + self.agg_fun(back)
+            rho = robust_rho(jnp.min(sq_dist, axis=1), alpha=self.alpha, scale=self.scale)
+            total = total + agg_masked(rho, valid, 1, self.agg)
 
         return total
 
 
+class point2plane:
+
+    def __init__(self, agg="mean", alpha=2, scale=1, bidir=True):
+
+        self.alpha = alpha
+        self.scale = scale
+        self.bidir = bidir
+        self.agg = agg
+
+    def compute(self, ref_pts, mov_pts,
+                      ref_labs=None, mov_labs=None,
+                      ref_normals=None, mov_normals=None):
+
+        sq_dist = jnp.sum((ref_pts[:, None, :] - mov_pts[None, :, :]) ** 2, axis=-1)
+        # masking before argmin makes the nearest neighbours label-consistent
+        sq_dist, valid = mask_labs(sq_dist, ref_labs, mov_labs)
+
+        if ref_normals is not None:
+            ref_normals = ref_normals / (jnp.linalg.norm(ref_normals, axis=-1, keepdims=True) + 1e-8)
+
+        if mov_normals is not None:
+            mov_normals = mov_normals / (jnp.linalg.norm(mov_normals, axis=-1, keepdims=True) + 1e-8)
+
+        # forward: each moving point → its nearest reference point
+        nn_idx = jnp.argmin(sq_dist, axis=0)
+
+        if ref_normals is not None:
+            diff = mov_pts - ref_pts[nn_idx]
+            residual = jnp.sum(diff * ref_normals[nn_idx], axis=-1)
+            proj = residual**2
+        else:
+            proj = jnp.min(sq_dist, axis=0)
+
+        proj = robust_rho(proj, alpha=self.alpha, scale=self.scale)
+        total = agg_masked(proj, valid, 0, self.agg)
+
+        if self.bidir:
+            # backward: each reference point → nearest moving point
+            back_nn_idx = jnp.argmin(sq_dist, axis=1)
+
+            if mov_normals is not None:
+                diff = ref_pts - mov_pts[back_nn_idx]
+                residual = jnp.sum(diff * mov_normals[back_nn_idx], axis=-1)
+                back = residual**2
+            else:
+                back = jnp.min(sq_dist, axis=1)
+
+            back = robust_rho(back, alpha=self.alpha, scale=self.scale)
+            total = total + agg_masked(back, valid, 1, self.agg)
+
+        return total
+
+
+def mask_labs(sq_dist, ref_labs, mov_labs):
+    # Shape-stable, so one trace serves any label set. Finite sentinel keeps gradients defined.
+    if ref_labs is None or mov_labs is None:
+        return sq_dist, None
+    valid = ref_labs[:, None] == mov_labs[None, :]
+    big = jax.lax.stop_gradient(jnp.max(sq_dist)) + 1.0
+    return sq_dist + jnp.where(valid, 0.0, big), valid
+
+
+def agg_masked(rho, valid, axis, agg):
+    # Points whose label is absent on the other side contribute nothing.
+    if valid is None:
+        return jnp.max(rho) if agg == "max" else jnp.mean(rho)
+    has = jnp.any(valid, axis=axis)
+    rho = jnp.where(has, rho, 0.0)
+    if agg == "max":
+        return jnp.max(rho)
+    return jnp.sum(rho) / jnp.maximum(jnp.sum(has), 1)
+
+
 class grad_disp:
+
     def __init__(self, l_norm=2, eps=1e-9):
         self.l_norm = l_norm
         self.eps = eps
@@ -205,10 +221,20 @@ def energy_total_fn(theta, cpts, mov_mesh, ref_mesh_list, fit_fun, regul_fun, wr
     regul = regul_fun.compute(svf, mov_pts, mov_simps)
 
 
+    # Recomputed on the moved points, so the backward term is point-to-plane as well. A contour
+    # stack carries edges rather than faces, so it has no normal to take: its face normals would
+    # come out of a degenerate cross product, exactly zero, and the norm that follows has no
+    # gradient there. The backward term stays point-to-point for it.
+    use_normals = any(ref_mesh[2] is not None for ref_mesh in ref_mesh_list)
+    has_faces = mov_simps is not None and mov_simps.shape[1] > 2
+    moved_normals = utils.normals_mesh_jnp(moved_pts, mov_simps) if use_normals and has_faces else None
+
     fit = 0.0
     for ref_mesh in ref_mesh_list:
         ref_pts, ref_simps, ref_normals, ref_labs = ref_mesh
-        fit += fit_fun.compute(ref_pts, moved_pts, ref_normals=ref_normals)
+        fit += fit_fun.compute(
+            ref_pts, moved_pts, ref_labs=ref_labs, mov_labs=mov_labs, ref_normals=ref_normals, mov_normals=moved_normals
+        )
 
     return fit + wreg * regul
 
