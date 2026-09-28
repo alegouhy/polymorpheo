@@ -25,12 +25,16 @@ dependencies = [
   "scikit-image",
   "scipy",
   "shapely",
+  "simpleitk",
   "tqdm",
   "triangle",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "pre-commit"]
+# fetch_micro also needs microdraw.py, which is not on PyPI:
+# pip install git+https://github.com/r03ert0/microdraw.py
+micro = ["pillow", "certifi"]
 
 [tool.setuptools]
 include-package-data = true

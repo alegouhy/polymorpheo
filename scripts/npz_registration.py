@@ -35,7 +35,7 @@ bidir = True
 thr_conn = [0.2, 0.5]
 niter = 1
 
-io = polymorpheo.io(
+io = polymorpheo.io_micro(
     datadir=datadir_path.replace("/sample_contours.npz", ""),
     names=["sample_contours"],
     spacing=spacing,

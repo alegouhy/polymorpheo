@@ -124,7 +124,7 @@ def main():
 
     # --- load ---
 
-    micro_io = polymorpheo.io(
+    micro_io = polymorpheo.io_micro(
         datadir=str(micro_path.parent),
         names=[name],
         spacing=spacing,
