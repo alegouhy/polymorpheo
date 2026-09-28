@@ -1166,19 +1166,28 @@ def split_vtkpoly(poly, pos, axis):
     return poly_1, poly_2
 
 
-def vtkpoly(pts, simps):
-    ndims = pts.shape[1]
+def vtkpoly(pts, simps, labs=None):
+    nvert = simps.shape[1]
 
     pts_vtk = vtk.vtkPoints()
     pts_vtk.SetData(numpy_to_vtk(pts, deep=True))
 
-    flat_simps = np.hstack([np.full((simps.shape[0], 1), ndims), simps]).flatten()
+    flat_simps = np.hstack([np.full((simps.shape[0], 1), nvert), simps]).flatten()
     simps_vtk = vtk.vtkCellArray()
     simps_vtk.SetCells(simps.shape[0], numpy_to_vtkIdTypeArray(flat_simps, deep=True))
 
     poly = vtk.vtkPolyData()
     poly.SetPoints(pts_vtk)
-    poly.SetPolys(simps_vtk)
+    # 2-vertex simplices are the edges of a contour stack, larger ones are faces
+    if nvert == 2:
+        poly.SetLines(simps_vtk)
+    else:
+        poly.SetPolys(simps_vtk)
+
+    if labs is not None:
+        labs_vtk = numpy_to_vtk(np.ascontiguousarray(labs, dtype=np.int32), deep=True)
+        labs_vtk.SetName("labs")
+        poly.GetPointData().SetScalars(labs_vtk)
 
     return poly
 
@@ -1197,6 +1206,133 @@ def write_vtkpoly(poly, filename):
     writer.SetInputData(poly)
     writer.SetFileName(filename)
     writer.Write()
+
+
+def write_surf(filename, pts, simps, labs=None, labels=None, z_coords=None):
+    """Write points with their edge or face simplices, and the regions they belong to.
+
+    labs holds one label per point and labels names them, labels[l - 1] being the name of label l.
+    The name is what another surface is matched against, so it is written wherever the format has
+    somewhere to put it: npz as an array, vtp as field data and obj as the name of the group each
+    label becomes. ply holds neither regions nor edges.
+    """
+    pts, simps = np.asarray(pts), np.asarray(simps, dtype=np.int32)
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext == ".npz":
+        extra = {k: v for k, v in (("labs", labs), ("labels", labels), ("z_coords", z_coords))
+                 if v is not None}
+        np.savez(filename, pts=pts, simps=simps, **{k: np.asarray(v) for k, v in extra.items()})
+    elif ext == ".obj" and labs is not None:
+        _write_obj_groups(filename, pts, simps, np.asarray(labs), labels)
+    else:
+        poly = vtkpoly(pts, simps, labs)
+        if labels is not None:
+            names = vtk.vtkStringArray()
+            names.SetName("labels")
+            for name in labels:
+                names.InsertNextValue(str(name))
+            poly.GetFieldData().AddArray(names)
+        write_vtkpoly(poly, filename)
+
+
+def read_surf(filename):
+    """Read back what write_surf wrote: points, simplices, labels, their names and slice positions.
+
+    Anything the file does not carry comes back as None. labels[l - 1] names label l, which is what
+    two surfaces are matched on; the label values themselves mean nothing outside the file.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext == ".npz":
+        data = np.load(filename)
+        return (np.asarray(data["pts"], dtype=float), np.asarray(data["simps"], dtype=np.int32),
+                data["labs"] if "labs" in data else None,
+                [str(name) for name in data["labels"]] if "labels" in data else None,
+                data["z_coords"] if "z_coords" in data else None)
+
+    poly = read_vtkpoly(filename)
+    mesh = vtkpoly2mesh(poly)
+    pts, simps = np.asarray(mesh[0], dtype=float), np.asarray(mesh[1], dtype=np.int32)
+    labs = np.asarray(mesh[2]) if len(mesh) > 2 and mesh[2] is not None else None
+    labels = None
+
+    names_vtk = poly.GetFieldData().GetAbstractArray("labels")
+    if names_vtk is not None:
+        labels = [names_vtk.GetValue(i) for i in range(names_vtk.GetNumberOfValues())]
+    if ext == ".obj" and labs is None:
+        labs, labels = _read_obj_groups(filename, pts.shape[0], simps)
+
+    return pts, simps, labs, labels, None
+
+
+def _write_obj_groups(filename, pts, simps, labs, labels=None):
+    # obj has no per-vertex field, so each label becomes a group of its own, the way a mesh
+    # separates its parts, and the group goes by the region name. Vertices are global and declared
+    # once, before any group uses them.
+    mtl = os.path.splitext(os.path.basename(filename))[0] + ".mtl"
+    cell_labs = labs[simps[:, 0]]
+    names = [obj_name(labels[lab - 1]) if labels is not None and 0 < lab <= len(labels)
+             else f"label_{lab}" for lab in np.unique(cell_labs)]
+    elem = "l" if simps.shape[1] == 2 else "f"
+
+    with open(filename, "w") as f:
+        f.write(f"mtllib {mtl}\n")
+        for pt in pts:
+            f.write("v " + " ".join(f"{x:.6f}" for x in pt) + "\n")
+        for lab, name in zip(np.unique(cell_labs), names):
+            f.write(f"o {name}\ng {name}\nusemtl {name}\n")
+            for simp in simps[cell_labs == lab]:
+                f.write(elem + "".join(f" {i + 1}" for i in simp) + "\n")  # obj indexes from 1
+
+    with open(os.path.join(os.path.dirname(filename), mtl), "w") as f:
+        for i, name in enumerate(names):
+            col = plt.get_cmap("tab10")(i % 10)[:3]
+            f.write(f"newmtl {name}\nKd " + " ".join(f"{c:.3f}" for c in col) + "\n")
+
+
+def _read_obj_groups(filename, npts, simps):
+    # vtk fills its GroupIds for faces only, so the groups are read here, in the order they appear:
+    # each one is a region, and its name is what another surface is matched on.
+    cell_labs = []
+    labels = []
+    with open(filename) as f:
+        for line in f:
+            if line.startswith("usemtl "):
+                name = line.split(maxsplit=1)[1].strip()
+                if name not in labels:
+                    labels.append(name)
+            elif line[:2] in ("l ", "f "):
+                cell_labs.append(len(labels))
+
+    if not cell_labs or not any(cell_labs) or len(cell_labs) != simps.shape[0]:
+        return None, None
+
+    labs = np.zeros(npts, dtype=np.int32)
+    labs[simps.ravel()] = np.repeat(cell_labs, simps.shape[1])
+
+    return labs, labels
+
+
+def relabel_surf(infile, outfile, names):
+    """Rename the regions of a surface, so it names them the way another surface does.
+
+    names maps an old region name to a new one; any region left out of it keeps the name it has.
+    Written back over the file unless outfile says otherwise.
+    """
+    pts, simps, labs, labels, z_coords = read_surf(infile)
+    if labels is None:
+        raise ValueError(f"{infile} names no region, so there is nothing to rename.")
+
+    names = {obj_name(old): new for old, new in names.items()}
+    labels = [names.get(obj_name(name), name) for name in labels]
+    write_surf(outfile, pts, simps, labs=labs, labels=labels, z_coords=z_coords)
+
+
+
+def obj_name(name):
+    # obj splits its lines on whitespace, so a group cannot be named with any in it
+    return str(name).replace(" ", "_")
 
 
 def read_vtkpoly(filename):
@@ -1354,13 +1490,16 @@ def vtkpoly2mesh(poly, ax2d=None):
         pts = np.delete(pts, ax2d, 1)
         ndims -= 1
 
-    if ndims == 2:
-        ncells = poly.GetNumberOfLines()
-        simps = np.array(poly.GetLines().GetData()).reshape((ncells, -1))
+    # a contour stack carries line cells rather than faces, whatever the number of dimensions
+    if ndims == 2 or poly.GetNumberOfPolys() == 0:
+        ncells, cells = poly.GetNumberOfLines(), poly.GetLines()
     else:
-        ncells = poly.GetNumberOfPolys()
-        simps = np.array(poly.GetPolys().GetData()).reshape((ncells, -1))
-    simps = np.array(simps, dtype=np.int32).reshape((ncells, -1))[:, 1:]
+        ncells, cells = poly.GetNumberOfPolys(), poly.GetPolys()
+
+    if ncells == 0:
+        simps = np.empty((0, ndims), dtype=np.int32)
+    else:
+        simps = np.array(cells.GetData(), dtype=np.int32).reshape((ncells, -1))[:, 1:]
 
     pts_col_vtk = poly.GetPointData().GetScalars()
     if pts_col_vtk is not None:

@@ -4,6 +4,7 @@ from . import energy, register, transfo, utils
 from .core import bridge_contours, register_slices
 from .io_micro import (io_micro, load_contour, load_covs, load_img, load_meta, load_pts,
                        write_volume)
+from .utils import relabel_surf
 
 __all__ = [
     "energy",
@@ -16,6 +17,7 @@ __all__ = [
     "load_img",
     "load_contour",
     "load_meta",
+    "relabel_surf",
     "write_volume",
     "bridge_contours",
     "register_slices",
