@@ -60,7 +60,7 @@ def parse_args():
                              "instead of transporting the full covariance.")
     parser.add_argument("--chunk-size", type=int, default=1000, dest="chunk_size", metavar="N",
                         help="Transform the --pts in blocks of at most N at a time to cap peak "
-                             "memory (default: all at once). Does not change the result.")
+                             "memory (default: %(default)s). Does not change the result.")
     parser.add_argument("--images", type=Path, default=None, metavar="DIR",
                         help="Directory of slice images, one per slice as fetch_micro writes them, "
                              "to resample through the chains. Needs --geom and --out-image.")
