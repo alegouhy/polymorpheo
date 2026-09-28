@@ -2,7 +2,7 @@ from itertools import product
 
 import jax
 import jax.numpy as jnp
-import jax.lax as lax
+import optax
 import numpy as np
 from scipy.linalg import expm, logm
 from scipy.stats.qmc import Sobol
@@ -247,6 +247,70 @@ def apply_transfo_chain_jacobian(transfo_list, pts, invert=False):
     return pts_moved, jac
 
 
+def bch(poly1, poly2, pts, sigma, cpts=None, eps=1e-14):
+    """
+    Second order BCH approximation of the composition poly2 o poly1,
+    same order as apply_transfo_chain([poly1, poly2]). DOES NOT HANDLE theta_lin.
+
+    log(exp(v2) o exp(v1)) = v1 + v2 - 1/2 [v1, v2] + O(3),
+    with [u, v] = Ju v - Jv u.
+
+    The resulting velocity is sampled at pts and projected onto a
+    Gaussian kernel field with the chosen sigma.
+
+    Returns a new polytransfo.
+    """
+
+    if cpts is None:
+        cpts = pts
+
+    def interp1(x):
+        return poly1.interp(x[None], poly1.cpts, None, poly1.theta_trans)[0]
+
+    def interp2(x):
+        return poly2.interp(x[None], poly2.cpts, None, poly2.theta_trans)[0]
+
+    vel1 = jax.vmap(interp1)(pts)
+    vel2 = jax.vmap(interp2)(pts)
+
+    jac1 = jax.vmap(jax.jacobian(interp1))(pts)
+    jac2 = jax.vmap(jax.jacobian(interp2))(pts)
+
+    bracket = ( jnp.einsum("nij,nj->ni", jac1, vel2)
+               -jnp.einsum("nij,nj->ni", jac2, vel1))
+
+    vel = vel1 + vel2 - 0.5 * bracket
+
+    # Project sampled velocity onto the new kernel field.
+    sqdist = utils.pts_dist(pts, cpts)
+    weight = jnp.exp(-sqdist / (2 * sigma**2))
+    weight /= jnp.sum(weight, axis=1, keepdims=True) + eps
+
+    theta_trans = jnp.linalg.lstsq(weight, vel, rcond=None)[0]
+
+    poly = polytransfo(sigma=sigma, int_steps=poly1.int_steps,
+                       int_step_max=poly1.int_step_max,
+                       eps=eps, rk=poly1.rk)
+
+    poly.set_params(cpts, theta_trans=theta_trans)
+
+    return poly
+
+
+def bch_chain(polys, pts, sigma, cpts=None, eps=1e-14):
+    """
+    polys: list of polytransfos.
+    Rough approx when sigmas are different.
+    """
+    compo = polys[0]
+
+    for poly in polys[1:]:
+        compo = bch(compo, poly,
+                    pts=pts, sigma=sigma, cpts=cpts, eps=eps)
+
+    return compo
+
+
 def apply_transfo_chain_ellipsoids(transfo_list, centers, covs, invert=False, orientation_only=False):
     # Evaluates the chain on a set of ellipsoids, transporting each covariance with the Jacobian
     # of the composed transformation at its center.
@@ -428,6 +492,60 @@ class opti_polynom_transfo:
             X, _ = self.design_mat(mov_pts_bar)
 
         return X @ coeffs + self.ref_pts_mu
+
+
+
+def fit_velocity(poly, pts, disp, max_iter=500, lr=1e-2, normalise=True):
+    """
+    Fit theta_trans so that exp(v)(pts) matches pts + disp.
+    This gives an approximate Lie log, projected onto the
+    polytransfo velocity-field family.
+    """
+
+    cpts = pts if poly.cpts is None else poly.cpts
+    sigma = poly.sigma
+
+    mu, amp = 0.0, 1.0
+    if normalise:
+        (pts, cpts), mu, amp = utils.normalise_pts([pts, cpts])
+        disp = disp / amp
+        poly.sigma = sigma / amp
+
+    # Initial guess: direct kernel interpolation of the displacement
+    sqdist = utils.pts_dist(pts, cpts)
+    weight = jnp.exp(-sqdist / (2 * poly.sigma**2))
+    weight /= jnp.sum(weight, axis=1, keepdims=True) + poly.eps
+
+    theta = jnp.linalg.lstsq(weight, disp, rcond=None)[0]
+
+    target = pts + disp
+
+    def loss(theta):
+        disp_hat = poly.lie_exp(pts, cpts,
+                                theta_lin=None, theta_trans=theta)
+        pred = pts + disp_hat
+        return jnp.mean((pred - target) ** 2)
+
+    optimizer = optax.adam(lr)
+    opt_state = optimizer.init(theta)
+
+    @jax.jit
+    def step(theta, opt_state):
+        loss_val, grads = jax.value_and_grad(loss)(theta)
+        updates, opt_state = optimizer.update(grads, opt_state)
+        theta = optax.apply_updates(theta, updates)
+        return theta, opt_state, loss_val
+
+    losses = []
+    for _ in range(max_iter):
+        theta, opt_state, loss_val = step(theta, opt_state)
+        losses.append(loss_val)
+
+    poly.sigma = sigma
+    poly.set_params(cpts * amp + mu, theta_trans=theta * amp)
+
+    return poly, jnp.array(losses)
+
 
 
 def random_locAff(
