@@ -32,7 +32,7 @@ class bridge_contours:
         meshes = []
         for l in range(len(labs)):
             if is_lab:
-                polylines_l = [utils.extract_polyline(polyline, polyline[3] == l + 1) for polyline in polylines]
+                polylines_l = [utils.extract_polyline(polyline, polyline[3] == labs[l]) for polyline in polylines]
             else:
                 polylines_l = polylines
             opts_list = []

@@ -65,9 +65,10 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
     """
 
     normals = None
-    labs = None
     pts = []
     simps = [] if get_simps else None
+    labs = [] if lab is not None else None
+    lab_per_contour = np.ndim(lab) > 0  # one label for the whole list, or one per contour
     ipt = 0
 
     if npts is not None:
@@ -79,11 +80,13 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
                 length = np.sum(np.linalg.norm(np.diff(opts, axis=0), axis=1))
             lengths.append(length)
         length_tot = np.sum(lengths)
-        npts_contour = [max((1, int(npts * length / length_tot))) for length in lengths]
-        # npts_contour += [int(npts - np.sum(npts_contour))]
+        # at least 3: a contour resampled to a single point closes into a self-edge, which has no
+        # neighbour to take a direction from and turns the deformable energies into NaN
+        npts_contour = [max((3, int(npts * length / length_tot))) for length in lengths]
 
     for i, opts in enumerate(opts_list):
-        if npts is not None and opts.shape[0] > 1:
+        # a contour of zero length has nothing to resample along: its arc length normalises to 0/0
+        if npts is not None and opts.shape[0] > 1 and lengths[i] > 0:
             opts = resample_contour(opts, npts_contour[i])
         n_pts = opts.shape[0]
         pts.append(opts)
@@ -91,8 +94,12 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
         if get_simps:
             indices = np.arange(ipt, ipt + n_pts)
             edges = np.stack([indices[:-1], indices[1:]], axis=1)
-            edges = np.concatenate((edges, [[ipt + n_pts - 1, ipt]]), axis=0)
+            if n_pts > 2:  # below that the closing edge is a self-edge or a duplicate
+                edges = np.concatenate((edges, [[ipt + n_pts - 1, ipt]]), axis=0)
             simps.append(edges)
+
+        if labs is not None:
+            labs.append(np.full(n_pts, lab[i] if lab_per_contour else lab))
 
         ipt += n_pts
 
@@ -101,8 +108,8 @@ def opts_to_contour(opts_list, npts=None, get_simps=True, get_normals=False, lab
         simps = np.array(np.concatenate(simps, axis=0))
     if get_normals:
         normals = normals_contour(pts, simps)
-    if lab is not None:
-        labs = np.array([lab] * pts.shape[0])
+    if labs is not None:
+        labs = np.concatenate(labs)
 
     return pts, simps, normals, labs
 
